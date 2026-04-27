@@ -6,25 +6,25 @@ cliVersion: 4.8.0
 domain: openmcp.cloud
 layout:
 - go.kubebuilder.io/v4
-projectName: service-provider-otel-collector
-repo: github.com/openmcp-project/service-provider-otel-collector
+projectName: service-provider-otel-operator
+repo: github.com/openmcp-project/service-provider-otel-operator
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: openmcp.cloud
-  group: otelcollector.services
-  kind: OtelCollectorService
-  path: github.com/openmcp-project/service-provider-otel-collector/api/v1alpha1
+  group: oteloperator.services
+  kind: OtelOperatorService
+  path: github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: openmcp.cloud
-  group: otelcollector.services
+  group: oteloperator.services
   kind: ProviderConfig
-  path: github.com/openmcp-project/service-provider-otel-collector/api/v1alpha1
+  path: github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1
   version: v1alpha1
 version: "3"

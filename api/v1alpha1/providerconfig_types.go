@@ -19,39 +19,31 @@ package v1alpha1
 import (
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ProviderConfigSpec defines the desired state of ProviderConfig
 type ProviderConfigSpec struct {
+	// ChartURL is a reference to an OCI artifact repository that hosts the opentelemetry-operator Helm chart.
+	// +optional
+	// +kubebuilder:default="oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-operator"
+	ChartURL *string `json:"chartURL,omitempty"`
+
+	// ChartPullSecret is a reference to the secret containing the credentials to pull the Helm chart.
+	// The secret must be of type kubernetes.io/dockerconfigjson.
+	// +optional
+	ChartPullSecret *string `json:"chartPullSecret,omitempty"`
+
+	// PollInterval at which the controller requeues to detect drift
 	// +optional
 	// +kubebuilder:default:="1m"
 	// +kubebuilder:validation:Format=duration
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
 
-	// Default OTEL collector container image
+	// HelmValues are arbitrary Helm values passed directly to the managed HelmRelease.
 	// +optional
-	// +kubebuilder:default:="otel/opentelemetry-collector-contrib"
-	DefaultImage *string `json:"defaultImage,omitempty"`
-
-	// Default OTEL collector image tag
-	// +optional
-	// +kubebuilder:default:="0.146.1"
-	DefaultVersion *string `json:"defaultVersion,omitempty"`
-
-	// Image pull secrets on platform cluster, synced to MCP
-	// +optional
-	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
-
-	// Default compute resource requirements
-	// +optional
-	DefaultResources *corev1.ResourceRequirements `json:"defaultResources,omitempty"`
-
-	// Default target namespace in MCP
-	// +optional
-	// +kubebuilder:default:="observability"
-	DefaultNamespace *string `json:"defaultNamespace,omitempty"`
+	HelmValues *apiextensionsv1.JSON `json:"helmValues,omitempty"`
 }
 
 // ProviderConfigStatus defines the observed state of ProviderConfig.

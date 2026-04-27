@@ -23,22 +23,22 @@ import (
 	"os"
 	"time"
 
+	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	flag "github.com/spf13/pflag"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	crdutil "github.com/openmcp-project/controller-utils/pkg/crds"
 	"github.com/openmcp-project/controller-utils/pkg/logging"
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
+	"github.com/openmcp-project/openmcp-operator/api/common"
 	openmcpconst "github.com/openmcp-project/openmcp-operator/api/constants"
 	providerv1alpha1 "github.com/openmcp-project/openmcp-operator/api/provider/v1alpha1"
 	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
 	"github.com/openmcp-project/openmcp-operator/lib/utils"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -50,12 +50,11 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/openmcp-project/service-provider-otel-collector/api/crds"
+	"github.com/openmcp-project/service-provider-otel-operator/api/crds"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/spruntime"
 
-	"github.com/openmcp-project/service-provider-otel-collector/pkg/spruntime"
-
-	otelcollectorservicesv1alpha1 "github.com/openmcp-project/service-provider-otel-collector/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-otel-collector/internal/controller"
+	oteloperatorservicesv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-otel-operator/internal/controller"
 )
 
 var (
@@ -74,15 +73,17 @@ func init() {
 func initPlatformScheme() {
 	utilruntime.Must(clientgoscheme.AddToScheme(platformScheme))
 	utilruntime.Must(apiextensionv1.AddToScheme(platformScheme))
-	utilruntime.Must(otelcollectorservicesv1alpha1.AddToScheme(platformScheme))
+	utilruntime.Must(oteloperatorservicesv1alpha1.AddToScheme(platformScheme))
 	utilruntime.Must(clustersv1alpha1.AddToScheme(platformScheme))
 	utilruntime.Must(providerv1alpha1.AddToScheme(platformScheme))
+	utilruntime.Must(sourcev1.AddToScheme(platformScheme))
+	utilruntime.Must(helmv2.AddToScheme(platformScheme))
 }
 
 func initOnboardingScheme() {
 	utilruntime.Must(clientgoscheme.AddToScheme(onboardingScheme))
 	utilruntime.Must(apiextensionv1.AddToScheme(onboardingScheme))
-	utilruntime.Must(otelcollectorservicesv1alpha1.AddToScheme(onboardingScheme))
+	utilruntime.Must(oteloperatorservicesv1alpha1.AddToScheme(onboardingScheme))
 }
 
 func initMcpScheme() {
@@ -122,22 +123,15 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 
-	logging.InitFlags(flag.CommandLine) // add standard logging flags
+	logging.InitFlags(flag.CommandLine)
 
-	// extract command from os.Args if present to allow further flag parsing
 	if len(os.Args) > 1 {
-		command = os.Args[1] // either init or run
+		command = os.Args[1]
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
 	}
 
 	flag.Parse()
 
-	// if the enable-http2 flag is false (the default), http/2 should be disabled
-	// due to its vulnerabilities. More specifically, disabling http/2 will
-	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
-	// Rapid Reset CVEs. For more information see:
-	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
-	// - https://github.com/advisories/GHSA-4374-p667-p6c8
 	disableHTTP2 := func(c *tls.Config) {
 		setupLog.Info("disabling http/2")
 		c.NextProtos = []string{"http/1.1"}
@@ -147,7 +141,6 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
 	webhookServerOptions := webhook.Options{
 		TLSOpts: webhookTLSOpts,
@@ -156,7 +149,6 @@ func main() {
 	if len(webhookCertPath) > 0 {
 		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
 			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
-
 		webhookServerOptions.CertDir = webhookCertPath
 		webhookServerOptions.CertName = webhookCertName
 		webhookServerOptions.KeyName = webhookCertKey
@@ -177,7 +169,6 @@ func main() {
 	if len(metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
-
 		metricsServerOptions.CertDir = metricsCertPath
 		metricsServerOptions.CertName = metricsCertName
 		metricsServerOptions.KeyName = metricsCertKey
@@ -199,45 +190,19 @@ func main() {
 		setupLog.Error(fmt.Errorf("environment variable %s not set - cannot determine source namespace for secrets", openmcpconst.EnvVariablePodNamespace), "pod namespace missing")
 		os.Exit(1)
 	}
-	mcpPermissions := []clustersv1alpha1.PermissionsRequest{
+
+	adminPermissions := []clustersv1alpha1.PermissionsRequest{
 		{
 			Rules: []rbacv1.PolicyRule{
 				{
-					APIGroups: []string{""},
-					Resources: []string{"namespaces"},
-					Verbs:     []string{"get", "create"},
-				},
-				{
-					APIGroups: []string{""},
-					Resources: []string{"configmaps"},
-					Verbs:     []string{"get"},
-				},
-				{
-					APIGroups: []string{""},
-					Resources: []string{"secrets"},
-					Verbs:     []string{"get", "list", "create", "update"},
-				},
-				{
-					APIGroups: []string{""},
-					Resources: []string{"services"},
-					Verbs:     []string{"get", "list", "create", "update", "delete"},
-				},
-				{
-					APIGroups: []string{"apps"},
-					Resources: []string{"deployments"},
-					Verbs:     []string{"get", "list", "create", "update", "delete"},
-				},
-				{
-					APIGroups: []string{"apiextensions.k8s.io"},
-					Resources: []string{"customresourcedefinitions"},
-					Verbs:     []string{"get", "create", "update"},
+					APIGroups: []string{"*"},
+					Resources: []string{"*"},
+					Verbs:     []string{"*"},
 				},
 			},
 		},
 	}
-	// Onboarding cluster needs broad permissions: the controller-runtime manager
-	// runs against the onboarding cluster and needs to list/watch our CRDs,
-	// manage finalizers, update status, and install CRDs during init.
+
 	onboardingPermissions := []clustersv1alpha1.PermissionsRequest{
 		{
 			Rules: []rbacv1.PolicyRule{
@@ -250,12 +215,11 @@ func main() {
 		},
 	}
 	clusterAccessManager := clusteraccess.NewClusterAccessManager(platformCluster.Client(),
-		"otelcollectorservice.otelcollector.services.openmcp.cloud", os.Getenv("POD_NAMESPACE"))
+		"oteloperatorservice.oteloperator.services.openmcp.cloud", os.Getenv("POD_NAMESPACE"))
 	clusterAccessManager.WithLogger(&log).
 		WithInterval(10 * time.Second).
 		WithTimeout(30 * time.Minute)
 	ctx := context.Background()
-	// init (job that installs CRDs)
 	if command == "init" {
 		onboardingCluster, err := clusterAccessManager.CreateAndWaitForCluster(ctx, "onboarding-init",
 			clustersv1alpha1.PURPOSE_ONBOARDING, onboardingScheme, onboardingPermissions)
@@ -274,9 +238,9 @@ func main() {
 		}
 
 		spGVK := metav1.GroupVersionKind{
-			Group:   otelcollectorservicesv1alpha1.GroupVersion.Group,
-			Version: otelcollectorservicesv1alpha1.GroupVersion.Version,
-			Kind:    "OtelCollectorService",
+			Group:   oteloperatorservicesv1alpha1.GroupVersion.Group,
+			Version: oteloperatorservicesv1alpha1.GroupVersion.Version,
+			Kind:    "OtelOperatorService",
 		}
 		if err := utils.RegisterGVKsAtServiceProvider(ctx, platformCluster.Client(), providerName, spGVK); err != nil {
 			setupLog.Error(err, "Failed to register GVK at ServiceProvider")
@@ -285,7 +249,7 @@ func main() {
 
 		return
 	}
-	// run (sp controller deployment)
+
 	onboardingCluster, err := clusterAccessManager.CreateAndWaitForCluster(ctx, "onboarding-run",
 		clustersv1alpha1.PURPOSE_ONBOARDING, onboardingScheme, onboardingPermissions)
 	if err != nil {
@@ -309,30 +273,36 @@ func main() {
 		os.Exit(1)
 	}
 	providerConfigUpdates := make(chan event.GenericEvent)
-	spr := spruntime.NewSPReconciler[*otelcollectorservicesv1alpha1.OtelCollectorService, *otelcollectorservicesv1alpha1.ProviderConfig](
-		func() *otelcollectorservicesv1alpha1.OtelCollectorService {
-			return &otelcollectorservicesv1alpha1.OtelCollectorService{}
+	spr := spruntime.NewSPReconciler[*oteloperatorservicesv1alpha1.OtelOperatorService, *oteloperatorservicesv1alpha1.ProviderConfig](
+		func() *oteloperatorservicesv1alpha1.OtelOperatorService {
+			return &oteloperatorservicesv1alpha1.OtelOperatorService{}
 		},
 	).
 		WithPlatformCluster(platformCluster).
 		WithOnboardingCluster(onboardingCluster).
-		WithServiceProviderReconciler(&controller.OtelCollectorServiceReconciler{
+		WithServiceProviderReconciler(&controller.OtelOperatorServiceReconciler{
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
 		}).
-		WithClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "OtelCollectorService").
+		WithClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "OtelOperatorService").
 			WithMCPScheme(mcpScheme).
 			WithRetryInterval(10 * time.Second).
-			WithMCPPermissions(mcpPermissions).
+			WithMCPPermissions(adminPermissions).
+			WithMCPRoleRefs([]common.RoleRef{
+				{
+					Name: "cluster-admin",
+					Kind: "ClusterRole",
+				},
+			}).
 			SkipWorkloadCluster(),
 		)
-	if err := spr.SetupWithManager(mgr, "otelcollectorservice", providerConfigUpdates); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "OtelCollectorService")
+	if err := spr.SetupWithManager(mgr, "oteloperatorservice", providerConfigUpdates); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OtelOperatorService")
 		os.Exit(1)
 	}
-	pcr := spruntime.NewPCReconciler(providerName, func() *otelcollectorservicesv1alpha1.ProviderConfig {
-		return &otelcollectorservicesv1alpha1.ProviderConfig{}
+	pcr := spruntime.NewPCReconciler(providerName, func() *oteloperatorservicesv1alpha1.ProviderConfig {
+		return &oteloperatorservicesv1alpha1.ProviderConfig{}
 	}).
 		WithPlatformCluster(platformCluster).
 		WithUpdateChannel(providerConfigUpdates)
@@ -357,12 +327,9 @@ func main() {
 	}
 }
 
-// initializePlatformCluster initializes the platform cluster with the necessary REST config and client.
 func initializePlatformCluster() (*clusters.Cluster, error) {
 	platformCluster := clusters.New("platform")
-
 	platformCluster = platformCluster.WithRESTConfig(ctrl.GetConfigOrDie())
-
 	if err := platformCluster.InitializeClient(platformScheme); err != nil {
 		setupLog.Error(err, "Failed to initialize client for platform cluster")
 		return nil, err

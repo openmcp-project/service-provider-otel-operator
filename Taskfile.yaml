@@ -5,8 +5,8 @@ vars:
   API_DIRS: '{{.ROOT_DIR}}/api/v1alpha1/...'
   MANIFEST_OUT: '{{.ROOT_DIR}}/api/crds/manifests'
   CODE_DIRS: '{{.ROOT_DIR}}/cmd/... {{.ROOT_DIR}}/internal/... {{.ROOT_DIR}}/api/v1alpha1/... {{.ROOT_DIR}}/pkg/...'
-  COMPONENTS: 'service-provider-otel-collector'
-  REPO_URL: 'https://github.com/openmcp-project/service-provider-otel-collector'
+  COMPONENTS: 'service-provider-otel-operator'
+  REPO_URL: 'https://github.com/openmcp-project/service-provider-otel-operator'
 
 includes:
   shared:

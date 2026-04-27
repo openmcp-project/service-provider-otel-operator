@@ -1,5 +1,0 @@
-apiVersion: otelcollector.services.openmcp.cloud/v1alpha1
-kind: OtelCollectorService
-metadata:
-  name: test-mcp
-spec: {}

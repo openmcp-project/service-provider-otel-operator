@@ -1,9 +1,16 @@
-apiVersion: otelcollector.services.openmcp.cloud/v1alpha1
+apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
 kind: ProviderConfig
 metadata:
-  name: otelcollectorservice
+  name: oteloperatorservice
 spec:
   pollInterval: 1m
-  defaultImage: "otel/opentelemetry-collector-contrib"
-  defaultVersion: "0.146.1"
-  defaultNamespace: "observability"
+  chartURL: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-operator
+  helmValues:
+    admissionWebhooks:
+      certManager:
+        enabled: false
+      autoGenerateCert:
+        enabled: true
+    manager:
+      collectorImage:
+        repository: "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s"

@@ -1,0 +1,129 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha1
+
+import (
+	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// InstancePhase is a custom type representing the phase of a service instance.
+type InstancePhase string
+
+// ResourceLocation is a custom type representing the location of a resource.
+type ResourceLocation string
+
+// InstancePhase values.
+const (
+	Pending     InstancePhase = "Pending"
+	Progressing InstancePhase = "Progressing"
+	Ready       InstancePhase = "Ready"
+	Failed      InstancePhase = "Failed"
+	Terminating InstancePhase = "Terminating"
+	Unknown     InstancePhase = "Unknown"
+
+	ManagedControlPlane ResourceLocation = "ManagedControlPlane"
+	LocationPlatform    ResourceLocation = "PlatformCluster"
+)
+
+// OtelOperatorServiceSpec defines the desired state of OtelOperatorService
+type OtelOperatorServiceSpec struct {
+	// Version is the opentelemetry-operator Helm chart version to install.
+	Version string `json:"version"`
+}
+
+// OtelOperatorServiceStatus defines the observed state of OtelOperatorService.
+type OtelOperatorServiceStatus struct {
+	commonapi.Status `json:",inline"`
+
+	// Resources managed by this OtelOperatorService instance
+	// +optional
+	Resources []ManagedResource `json:"resources,omitempty"`
+}
+
+// ManagedResource defines a kubernetes object with its lifecycle phase
+type ManagedResource struct {
+	corev1.TypedObjectReference `json:",inline"`
+
+	// +required
+	Phase InstancePhase `json:"phase"`
+	// +optional
+	Message string `json:"message,omitempty"`
+	// +optional
+	Location ResourceLocation `json:"location,omitempty"`
+}
+
+// OtelOperatorService is the Schema for the oteloperatorservices API
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:JSONPath=`.status.phase`,name="Phase",type=string
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:metadata:labels="openmcp.cloud/cluster=onboarding"
+type OtelOperatorService struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is a standard object metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+
+	// spec defines the desired state of OtelOperatorService
+	// +required
+	Spec OtelOperatorServiceSpec `json:"spec"`
+
+	// status defines the observed state of OtelOperatorService
+	// +optional
+	Status OtelOperatorServiceStatus `json:"status,omitempty,omitzero"`
+}
+
+// +kubebuilder:object:root=true
+
+// OtelOperatorServiceList contains a list of OtelOperatorService
+type OtelOperatorServiceList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []OtelOperatorService `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&OtelOperatorService{}, &OtelOperatorServiceList{})
+}
+
+// Finalizer returns the finalizer string for the OtelOperatorService resource
+func (o *OtelOperatorService) Finalizer() string {
+	return GroupVersion.Group + "/finalizer"
+}
+
+// GetStatus returns the status of the OtelOperatorService resource
+func (o *OtelOperatorService) GetStatus() any {
+	return o.Status
+}
+
+// GetConditions returns the conditions of the OtelOperatorService resource
+func (o *OtelOperatorService) GetConditions() *[]metav1.Condition {
+	return &o.Status.Conditions
+}
+
+// SetPhase sets the phase of the OtelOperatorService resource status
+func (o *OtelOperatorService) SetPhase(phase string) {
+	o.Status.Phase = phase
+}
+
+// SetObservedGeneration sets the observed generation of the OtelOperatorService resource
+func (o *OtelOperatorService) SetObservedGeneration(gen int64) {
+	o.Status.ObservedGeneration = gen
+}
