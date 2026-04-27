@@ -6,9 +6,9 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.20.1
   labels:
     openmcp.cloud/cluster: platform
-  name: providerconfigs.otelcollector.services.openmcp.cloud
+  name: providerconfigs.oteloperator.services.openmcp.cloud
 spec:
-  group: otelcollector.services.openmcp.cloud
+  group: oteloperator.services.openmcp.cloud
   names:
     kind: ProviderConfig
     listKind: ProviderConfigList
@@ -41,98 +41,24 @@ spec:
           spec:
             description: spec defines the desired state of ProviderConfig
             properties:
-              defaultImage:
-                default: otel/opentelemetry-collector-contrib
-                description: Default OTEL collector container image
+              chartPullSecret:
+                description: |-
+                  ChartPullSecret is a reference to the secret containing the credentials to pull the Helm chart.
+                  The secret must be of type kubernetes.io/dockerconfigjson.
                 type: string
-              defaultNamespace:
-                default: observability
-                description: Default target namespace in MCP
+              chartURL:
+                default: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-operator
+                description: ChartURL is a reference to an OCI artifact repository
+                  that hosts the opentelemetry-operator Helm chart.
                 type: string
-              defaultResources:
-                description: Default compute resource requirements
-                properties:
-                  claims:
-                    description: |-
-                      Claims lists the names of resources, defined in spec.resourceClaims,
-                      that are used by this container.
-
-                      This field depends on the
-                      DynamicResourceAllocation feature gate.
-
-                      This field is immutable. It can only be set for containers.
-                    items:
-                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
-                      properties:
-                        name:
-                          description: |-
-                            Name must match the name of one entry in pod.spec.resourceClaims of
-                            the Pod where this field is used. It makes that resource available
-                            inside a container.
-                          type: string
-                        request:
-                          description: |-
-                            Request is the name chosen for a request in the referenced claim.
-                            If empty, everything from the claim is made available, otherwise
-                            only the result of this request.
-                          type: string
-                      required:
-                      - name
-                      type: object
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - name
-                    x-kubernetes-list-type: map
-                  limits:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Limits describes the maximum amount of compute resources allowed.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
-                  requests:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Requests describes the minimum amount of compute resources required.
-                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
-                type: object
-              defaultVersion:
-                default: 0.146.1
-                description: Default OTEL collector image tag
-                type: string
-              imagePullSecrets:
-                description: Image pull secrets on platform cluster, synced to MCP
-                items:
-                  description: |-
-                    LocalObjectReference contains enough information to let you locate the
-                    referenced object inside the same namespace.
-                  properties:
-                    name:
-                      default: ""
-                      description: |-
-                        Name of the referent.
-                        This field is effectively required, but due to backwards compatibility is
-                        allowed to be empty. Instances of this type with an empty value here are
-                        almost certainly wrong.
-                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                      type: string
-                  type: object
-                  x-kubernetes-map-type: atomic
-                type: array
+              helmValues:
+                description: HelmValues are arbitrary Helm values passed directly
+                  to the managed HelmRelease.
+                x-kubernetes-preserve-unknown-fields: true
               pollInterval:
                 default: 1m
+                description: PollInterval at which the controller requeues to detect
+                  drift
                 format: duration
                 type: string
             type: object

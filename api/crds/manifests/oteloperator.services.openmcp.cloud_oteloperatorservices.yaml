@@ -6,14 +6,14 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.20.1
   labels:
     openmcp.cloud/cluster: onboarding
-  name: otelcollectorservices.otelcollector.services.openmcp.cloud
+  name: oteloperatorservices.oteloperator.services.openmcp.cloud
 spec:
-  group: otelcollector.services.openmcp.cloud
+  group: oteloperator.services.openmcp.cloud
   names:
-    kind: OtelCollectorService
-    listKind: OtelCollectorServiceList
-    plural: otelcollectorservices
-    singular: otelcollectorservice
+    kind: OtelOperatorService
+    listKind: OtelOperatorServiceList
+    plural: oteloperatorservices
+    singular: oteloperatorservice
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -26,7 +26,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: OtelCollectorService is the Schema for the otelcollectorservices
+        description: OtelOperatorService is the Schema for the oteloperatorservices
           API
         properties:
           apiVersion:
@@ -47,85 +47,20 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of OtelCollectorService
+            description: spec defines the desired state of OtelOperatorService
             properties:
-              collectorImage:
-                description: Override the default collector image from ProviderConfig
+              version:
+                description: Version is the opentelemetry-operator Helm chart version
+                  to install.
                 type: string
-              collectorVersion:
-                description: Override the default collector image tag from ProviderConfig
-                type: string
-              namespace:
-                description: Override the target namespace in the MCP (default from
-                  ProviderConfig, typically "observability")
-                type: string
-              resources:
-                description: Override default CPU/memory resource requirements from
-                  ProviderConfig
-                properties:
-                  claims:
-                    description: |-
-                      Claims lists the names of resources, defined in spec.resourceClaims,
-                      that are used by this container.
-
-                      This field depends on the
-                      DynamicResourceAllocation feature gate.
-
-                      This field is immutable. It can only be set for containers.
-                    items:
-                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
-                      properties:
-                        name:
-                          description: |-
-                            Name must match the name of one entry in pod.spec.resourceClaims of
-                            the Pod where this field is used. It makes that resource available
-                            inside a container.
-                          type: string
-                        request:
-                          description: |-
-                            Request is the name chosen for a request in the referenced claim.
-                            If empty, everything from the claim is made available, otherwise
-                            only the result of this request.
-                          type: string
-                      required:
-                      - name
-                      type: object
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - name
-                    x-kubernetes-list-type: map
-                  limits:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Limits describes the maximum amount of compute resources allowed.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
-                  requests:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Requests describes the minimum amount of compute resources required.
-                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
-                type: object
+            required:
+            - version
             type: object
           status:
-            description: status defines the observed state of OtelCollectorService
+            description: status defines the observed state of OtelOperatorService
             properties:
               conditions:
-                description: conditions represent the current state of the OtelCollectorService
-                  resource.
+                description: Conditions contains the conditions.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -181,9 +116,6 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
               observedGeneration:
                 description: ObservedGeneration is the generation of this resource
                   that was last reconciled by the controller.
@@ -192,6 +124,46 @@ spec:
               phase:
                 description: Phase is the current phase of the resource.
                 type: string
+              resources:
+                description: Resources managed by this OtelOperatorService instance
+                items:
+                  description: ManagedResource defines a kubernetes object with its
+                    lifecycle phase
+                  properties:
+                    apiGroup:
+                      description: |-
+                        APIGroup is the group for the resource being referenced.
+                        If APIGroup is not specified, the specified Kind must be in the core API group.
+                        For any other third-party types, APIGroup is required.
+                      type: string
+                    kind:
+                      description: Kind is the type of resource being referenced
+                      type: string
+                    location:
+                      description: ResourceLocation is a custom type representing
+                        the location of a resource.
+                      type: string
+                    message:
+                      type: string
+                    name:
+                      description: Name is the name of resource being referenced
+                      type: string
+                    namespace:
+                      description: |-
+                        Namespace is the namespace of resource being referenced
+                        Note that when a namespace is specified, a gateway.networking.k8s.io/ReferenceGrant object is required in the referent namespace to allow that namespace's owner to accept the reference. See the ReferenceGrant documentation for details.
+                        (Alpha) This field requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
+                      type: string
+                    phase:
+                      description: InstancePhase is a custom type representing the
+                        phase of a service instance.
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  - phase
+                  type: object
+                type: array
             required:
             - observedGeneration
             - phase
