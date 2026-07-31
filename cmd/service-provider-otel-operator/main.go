@@ -26,16 +26,6 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	flag "github.com/spf13/pflag"
-
-	"github.com/openmcp-project/controller-utils/pkg/clusters"
-	crdutil "github.com/openmcp-project/controller-utils/pkg/crds"
-	"github.com/openmcp-project/controller-utils/pkg/logging"
-	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
-	"github.com/openmcp-project/openmcp-operator/api/common"
-	openmcpconst "github.com/openmcp-project/openmcp-operator/api/constants"
-	providerv1alpha1 "github.com/openmcp-project/openmcp-operator/api/provider/v1alpha1"
-	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
-	"github.com/openmcp-project/openmcp-operator/lib/utils"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,15 +34,23 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/openmcp-project/service-provider-otel-operator/api/crds"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/spruntime"
+	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	crdutil "github.com/openmcp-project/controller-utils/pkg/crds"
+	"github.com/openmcp-project/controller-utils/pkg/logging"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
+	"github.com/openmcp-project/openmcp-operator/api/common"
+	openmcpconst "github.com/openmcp-project/openmcp-operator/api/constants"
+	providerv1alpha1 "github.com/openmcp-project/openmcp-operator/api/provider/v1alpha1"
+	libclusteraccess "github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
+	"github.com/openmcp-project/openmcp-operator/lib/utils"
 
+	"github.com/openmcp-project/service-provider-otel-operator/api/crds"
 	oteloperatorservicesv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/internal/controller"
 )
@@ -104,7 +102,7 @@ func main() {
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&environment, "environment", "", "Name of the environment")
-	flag.StringVar(&providerName, "provider-name", "", "Name of the provider resource")
+	flag.StringVar(&providerName, "provider-name", "oteloperatorservice", "Name of the provider resource")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -214,7 +212,7 @@ func main() {
 			},
 		},
 	}
-	clusterAccessManager := clusteraccess.NewClusterAccessManager(platformCluster.Client(),
+	clusterAccessManager := libclusteraccess.NewClusterAccessManager(platformCluster.Client(),
 		"oteloperatorservice.oteloperator.services.openmcp.cloud", os.Getenv("POD_NAMESPACE"))
 	clusterAccessManager.WithLogger(&log).
 		WithInterval(10 * time.Second).
@@ -257,12 +255,13 @@ func main() {
 	}
 
 	mgr, err := ctrl.NewManager(onboardingCluster.RESTConfig(), ctrl.Options{
-		Scheme:                 onboardingScheme,
-		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "232f9e39.openmcp.cloud",
+		Scheme:                        onboardingScheme,
+		Metrics:                       metricsServerOptions,
+		WebhookServer:                 webhookServer,
+		HealthProbeBindAddress:        probeAddr,
+		LeaderElection:                enableLeaderElection,
+		LeaderElectionID:              "232f9e39.openmcp.cloud",
+		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -272,42 +271,39 @@ func main() {
 		setupLog.Error(err, "unable to add platform cluster to manager")
 		os.Exit(1)
 	}
-	providerConfigUpdates := make(chan event.GenericEvent)
-	spr := spruntime.NewSPReconciler[*oteloperatorservicesv1alpha1.OtelOperatorService, *oteloperatorservicesv1alpha1.ProviderConfig](
-		func() *oteloperatorservicesv1alpha1.OtelOperatorService {
+
+	clusterAccessReconciler := libclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "oteloperatorservice").
+		WithMCPScheme(mcpScheme).
+		WithRetryInterval(10 * time.Second).
+		WithMCPPermissions(adminPermissions).
+		WithMCPRoleRefs([]common.RoleRef{
+			{
+				Name: "cluster-admin",
+				Kind: "ClusterRole",
+			},
+		}).
+		SkipWorkloadCluster()
+
+	spr := serviceprovider.NewAPIReconcilerBuilder[*oteloperatorservicesv1alpha1.OtelOperatorService, *oteloperatorservicesv1alpha1.ProviderConfig]().
+		EmptyObjectProvider(func() *oteloperatorservicesv1alpha1.OtelOperatorService {
 			return &oteloperatorservicesv1alpha1.OtelOperatorService{}
-		},
-	).
-		WithPlatformCluster(platformCluster).
-		WithOnboardingCluster(onboardingCluster).
-		WithServiceProviderReconciler(&controller.OtelOperatorServiceReconciler{
+		}).
+		EmptyConfigProvider(func() *oteloperatorservicesv1alpha1.ProviderConfig {
+			return &oteloperatorservicesv1alpha1.ProviderConfig{}
+		}).
+		PlatformCluster(platformCluster).
+		OnboardingCluster(onboardingCluster).
+		ClusterAccessReconciler(clusterAccessReconciler).
+		Reconciler(&controller.OtelOperatorServiceReconciler{
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
 		}).
-		WithClusterAccessReconciler(clusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "OtelOperatorService").
-			WithMCPScheme(mcpScheme).
-			WithRetryInterval(10 * time.Second).
-			WithMCPPermissions(adminPermissions).
-			WithMCPRoleRefs([]common.RoleRef{
-				{
-					Name: "cluster-admin",
-					Kind: "ClusterRole",
-				},
-			}).
-			SkipWorkloadCluster(),
-		)
-	if err := spr.SetupWithManager(mgr, "oteloperatorservice", providerConfigUpdates); err != nil {
+		WorkloadCluster(false).
+		MustBuild()
+
+	if err := spr.SetupWithManager(mgr, providerName); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OtelOperatorService")
-		os.Exit(1)
-	}
-	pcr := spruntime.NewPCReconciler(providerName, func() *oteloperatorservicesv1alpha1.ProviderConfig {
-		return &oteloperatorservicesv1alpha1.ProviderConfig{}
-	}).
-		WithPlatformCluster(platformCluster).
-		WithUpdateChannel(providerConfigUpdates)
-	if err := pcr.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ProviderConfig")
 		os.Exit(1)
 	}
 

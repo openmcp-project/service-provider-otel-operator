@@ -11,8 +11,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
+
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/spruntime"
 )
 
 // ManageFluxResourcesParams groups all parameters to create the required Flux resources.
@@ -22,7 +23,7 @@ type ManageFluxResourcesParams struct {
 	ChartPullSecretName string
 	Obj                 *apiv1alpha1.OtelOperatorService
 	ProviderConfig      *apiv1alpha1.ProviderConfig
-	ClusterContext      spruntime.ClusterContext
+	ClusterContext      clusteraccess.ClusterContext
 }
 
 // ManageFluxResources configures OCIRepository and HelmRelease for the otel-operator chart.
@@ -116,7 +117,16 @@ func FluxStatus(o client.Object, rl apiv1alpha1.ResourceLocation) Status {
 		return Status{Phase: apiv1alpha1.Terminating, Message: "Resource is terminating.", Location: rl}
 	}
 	if conditions.IsReady(fluxObject) {
-		return Status{Phase: apiv1alpha1.Ready, Message: "Resource is ready", Location: rl}
+		return Status{Phase: apiv1alpha1.Ready, Message: fluxStatusMessage(fluxObject, "Resource is ready"), Location: rl}
 	}
-	return Status{Phase: apiv1alpha1.Pending, Message: "Resource is not ready", Location: rl}
+	return Status{Phase: apiv1alpha1.Pending, Message: fluxStatusMessage(fluxObject, "Resource is not ready"), Location: rl}
+}
+
+func fluxStatusMessage(fluxObject conditions.Getter, fallback string) string {
+	for _, conditionType := range []string{meta.ReadyCondition, meta.StalledCondition, meta.ReconcilingCondition} {
+		if message := conditions.GetMessage(fluxObject, conditionType); message != "" {
+			return message
+		}
+	}
+	return fallback
 }

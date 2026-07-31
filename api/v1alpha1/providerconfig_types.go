@@ -85,10 +85,6 @@ type ProviderConfigList struct {
 	Items           []ProviderConfig `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&ProviderConfig{}, &ProviderConfigList{})
-}
-
 // PollInterval returns the poll interval duration from the spec.
 func (o *ProviderConfig) PollInterval() time.Duration {
 	if o.Spec.PollInterval == nil {

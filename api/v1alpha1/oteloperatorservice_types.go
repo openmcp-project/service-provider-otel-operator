@@ -99,10 +99,6 @@ type OtelOperatorServiceList struct {
 	Items           []OtelOperatorService `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&OtelOperatorService{}, &OtelOperatorServiceList{})
-}
-
 // Finalizer returns the finalizer string for the OtelOperatorService resource
 func (o *OtelOperatorService) Finalizer() string {
 	return GroupVersion.Group + "/finalizer"

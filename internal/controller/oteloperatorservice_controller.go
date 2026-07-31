@@ -21,19 +21,24 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/spruntime"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/mcpresources"
 )
 
 const namespaceOtelOperator = "opentelemetry-operator-system"
@@ -46,33 +51,53 @@ type OtelOperatorServiceReconciler struct {
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *OtelOperatorServiceReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx spruntime.ClusterContext) (ctrl.Result, error) {
-	spruntime.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+func (r *OtelOperatorServiceReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
+	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
-		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
+		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
 	results := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
 	if allResourcesReady(managedResources) {
-		spruntime.StatusReady(obj)
+		serviceprovider.StatusReady(obj)
+	} else {
+		serviceprovider.StatusProgressing(obj, "Reconciling", pendingResourcesMessage(managedResources))
 	}
 	if resultContainsErrors {
 		resultWithErrors := errors.New("resources contain reconcile errors")
-		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
 		return ctrl.Result{}, resultWithErrors
 	}
 	return ctrl.Result{}, nil
 }
 
 // Delete is called on every delete event
-func (r *OtelOperatorServiceReconciler) Delete(ctx context.Context, obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx spruntime.ClusterContext) (ctrl.Result, error) {
-	spruntime.StatusTerminating(obj)
+func (r *OtelOperatorServiceReconciler) Delete(ctx context.Context, obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
+	blockingKinds, err := mcpresources.BlockingKinds(ctx, clusterCtx.MCPCluster.Client())
+	if err != nil {
+		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
+		return ctrl.Result{}, err
+	}
+	if len(blockingKinds) > 0 {
+		msg := fmt.Sprintf("waiting for user resources to be deleted: %s", joinStrings(blockingKinds))
+		apimeta.SetStatusCondition(obj.GetConditions(), metav1.Condition{
+			Type:               serviceprovider.ServiceProviderConditionReady,
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: obj.GetGeneration(),
+			Reason:             "UserResourcesExist",
+			Message:            msg,
+		})
+		obj.SetObservedGeneration(obj.GetGeneration())
+		obj.SetPhase(serviceprovider.StatusPhaseTerminating)
+		return ctrl.Result{RequeueAfter: time.Second * 5}, nil
+	}
+	serviceprovider.StatusTerminating(obj)
 	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
-		spruntime.StatusProgressing(obj, "ReconcileError", err.Error())
+		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
 	results := mgr.Delete(ctx)
@@ -83,13 +108,13 @@ func (r *OtelOperatorServiceReconciler) Delete(ctx context.Context, obj *apiv1al
 	}
 	if resultContainsErrors {
 		resultWithErrors := errors.New("resources contain reconcile errors")
-		spruntime.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
 		return ctrl.Result{}, resultWithErrors
 	}
 	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
 
-func (r *OtelOperatorServiceReconciler) createObjectManager(obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx spruntime.ClusterContext) (oteloperator.Manager, error) {
+func (r *OtelOperatorServiceReconciler) createObjectManager(obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (oteloperator.Manager, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace: %w", err)
@@ -173,7 +198,7 @@ func nilIfEmptyString(str string) *string {
 	if str == "" {
 		return nil
 	}
-	return ptr.To(str)
+	return &str
 }
 
 func allResourcesReady(resources []apiv1alpha1.ManagedResource) bool {
@@ -183,4 +208,29 @@ func allResourcesReady(resources []apiv1alpha1.ManagedResource) bool {
 		}
 	}
 	return true
+}
+
+func pendingResourcesMessage(resources []apiv1alpha1.ManagedResource) string {
+	for _, res := range resources {
+		if res.Phase == apiv1alpha1.Ready {
+			continue
+		}
+		message := res.Message
+		if message == "" {
+			message = "Resource is not ready"
+		}
+		return fmt.Sprintf("%s %s/%s is %s: %s", res.Kind, ptr.Deref(res.Namespace, ""), res.Name, res.Phase, message)
+	}
+	return "Reconcile in progress"
+}
+
+func joinStrings(ss []string) string {
+	var b strings.Builder
+	for i, s := range ss {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(s)
+	}
+	return b.String()
 }
