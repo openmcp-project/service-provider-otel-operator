@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 		Namespace: "openmcp-system",
 		Operator: setup.OpenMCPOperatorSetup{
 			Name:         "openmcp-operator",
-			Image:        "ghcr.io/openmcp-project/images/openmcp-operator:v0.18.1",
+			Image:        "ghcr.io/openmcp-project/images/openmcp-operator:v1.3.0",
 			Environment:  "debug",
 			PlatformName: "platform",
 		},

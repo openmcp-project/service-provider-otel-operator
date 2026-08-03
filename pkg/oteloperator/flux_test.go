@@ -6,16 +6,16 @@ import (
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/spruntime"
 )
 
 func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
@@ -26,7 +26,7 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 	}
 	pc := &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{
-			ChartURL:     ptr.To("oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-operator"),
+			ChartURL:     new(string),
 			PollInterval: &metav1.Duration{Duration: time.Minute},
 		},
 	}
@@ -36,7 +36,7 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 		MCPNamespace:   "opentelemetry-operator-system",
 		Obj:            obj,
 		ProviderConfig: pc,
-		ClusterContext: spruntime.ClusterContext{
+		ClusterContext: clusteraccess.ClusterContext{
 			MCPAccessSecretKey: client.ObjectKey{Name: "mcp-kubeconfig", Namespace: "tenant-ns"},
 		},
 	})
@@ -86,7 +86,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		ChartPullSecretName: "my-secret",
 		Obj:                 obj,
 		ProviderConfig:      pc,
-		ClusterContext: spruntime.ClusterContext{
+		ClusterContext: clusteraccess.ClusterContext{
 			MCPAccessSecretKey: client.ObjectKey{Name: "mcp-kubeconfig", Namespace: "tenant-ns"},
 		},
 	})
@@ -136,6 +136,29 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	}
 }
 
+func TestFluxStatusUsesFluxConditionMessage(t *testing.T) {
+	repo := &sourcev1.OCIRepository{
+		Status: sourcev1.OCIRepositoryStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:    meta.ReadyCondition,
+					Status:  metav1.ConditionFalse,
+					Reason:  "AuthenticationFailed",
+					Message: "failed to login to registry",
+				},
+			},
+		},
+	}
+
+	status := FluxStatus(repo, apiv1alpha1.LocationPlatform)
+	if status.Phase != apiv1alpha1.Pending {
+		t.Fatalf("FluxStatus phase = %q, want %q", status.Phase, apiv1alpha1.Pending)
+	}
+	if status.Message != "failed to login to registry" {
+		t.Fatalf("FluxStatus message = %q, want condition message", status.Message)
+	}
+}
+
 func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 	cluster := &fakeManagedCluster{ns: "tenant-ns"}
 	obj := &apiv1alpha1.OtelOperatorService{
@@ -144,7 +167,7 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 	}
 	pc := &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{
-			ChartURL: ptr.To("oci://example.com/chart"),
+			ChartURL: new(string),
 		},
 	}
 
@@ -153,7 +176,7 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 		MCPNamespace:   "ns",
 		Obj:            obj,
 		ProviderConfig: pc,
-		ClusterContext: spruntime.ClusterContext{
+		ClusterContext: clusteraccess.ClusterContext{
 			MCPAccessSecretKey: client.ObjectKey{Name: "sec"},
 		},
 	})
