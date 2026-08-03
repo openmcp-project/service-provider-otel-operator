@@ -23,7 +23,7 @@ Platform Cluster                  MCP (per tenant)
                                   │  OpenTelemetryCollector CRs              │ ← user creates
 Onboarding Cluster                └──────────────────────────────────────────┘
 ┌──────────────────────┐
-│  OtelOperatorService │ ← one per MCP
+│  OtelOperator        │ ← one per MCP
 │  (per-MCP overrides) │
 └──────────────────────┘
 ```
@@ -57,13 +57,13 @@ spec:
 
 ## API
 
-### OtelOperatorService (onboarding cluster)
+### OtelOperator (onboarding cluster)
 
 Created per MCP to request an OpenTelemetry Operator installation. All fields are optional overrides — defaults come from the ProviderConfig.
 
 ```yaml
 apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
-kind: OtelOperatorService
+kind: OtelOperator
 metadata:
   name: my-mcp
 spec:
@@ -84,7 +84,7 @@ Cluster-scoped resource that provides default values for all MCPs.
 apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
 kind: ProviderConfig
 metadata:
-  name: oteloperatorservice
+  name: oteloperator
 spec:
   pollInterval: 1m
   chartVersion: "0.82.0"
@@ -104,7 +104,7 @@ spec:
 
 ```
 ├── api/
-│   ├── v1alpha1/                    # API types (OtelOperatorService, ProviderConfig)
+│   ├── v1alpha1/                    # API types (OtelOperator, ProviderConfig)
 │   └── crds/                        # Embedded CRD manifests
 ├── cmd/
 │   └── service-provider-otel-operator/  # Entrypoint (init + run commands)

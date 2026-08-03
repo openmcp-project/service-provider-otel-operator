@@ -21,7 +21,7 @@ type ManageFluxResourcesParams struct {
 	Cluster             ManagedCluster
 	MCPNamespace        string
 	ChartPullSecretName string
-	Obj                 *apiv1alpha1.OtelOperatorService
+	Obj                 *apiv1alpha1.OtelOperator
 	ProviderConfig      *apiv1alpha1.ProviderConfig
 	ClusterContext      clusteraccess.ClusterContext
 }

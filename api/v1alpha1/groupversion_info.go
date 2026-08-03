@@ -37,7 +37,7 @@ var (
 		},
 		func(s *runtime.Scheme) error {
 			s.AddKnownTypes(GroupVersion,
-				&OtelOperatorService{}, &OtelOperatorServiceList{},
+				&OtelOperator{}, &OtelOperatorList{},
 				&ProviderConfig{}, &ProviderConfigList{},
 			)
 			return nil

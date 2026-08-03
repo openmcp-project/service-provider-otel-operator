@@ -43,15 +43,15 @@ import (
 
 const namespaceOtelOperator = "opentelemetry-operator-system"
 
-// OtelOperatorServiceReconciler reconciles an OtelOperatorService object
-type OtelOperatorServiceReconciler struct {
+// OtelOperatorReconciler reconciles an OtelOperator object
+type OtelOperatorReconciler struct {
 	OnboardingCluster *clusters.Cluster
 	PlatformCluster   *clusters.Cluster
 	PodNamespace      string
 }
 
 // CreateOrUpdate is called on every add or update event
-func (r *OtelOperatorServiceReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
+func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
 	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
@@ -75,7 +75,7 @@ func (r *OtelOperatorServiceReconciler) CreateOrUpdate(ctx context.Context, obj 
 }
 
 // Delete is called on every delete event
-func (r *OtelOperatorServiceReconciler) Delete(ctx context.Context, obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
+func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	blockingKinds, err := mcpresources.BlockingKinds(ctx, clusterCtx.MCPCluster.Client())
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
@@ -114,7 +114,7 @@ func (r *OtelOperatorServiceReconciler) Delete(ctx context.Context, obj *apiv1al
 	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
 
-func (r *OtelOperatorServiceReconciler) createObjectManager(obj *apiv1alpha1.OtelOperatorService, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (oteloperator.Manager, error) {
+func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (oteloperator.Manager, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace: %w", err)
