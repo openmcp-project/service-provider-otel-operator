@@ -7,8 +7,10 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/e2e-framework/klient/wait"
 	"sigs.k8s.io/e2e-framework/pkg/env"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 
@@ -25,16 +27,19 @@ func TestMain(m *testing.M) {
 	version := mustVersion()
 	openmcp := setup.OpenMCPSetup{
 		Namespace: "openmcp-system",
+		WaitOpts:  []wait.Option{wait.WithTimeout(5 * time.Minute)},
 		Operator: setup.OpenMCPOperatorSetup{
-			Name:         "openmcp-operator",
+			Name: "openmcp-operator",
+			// renovate: datasource=docker depName=ghcr.io/openmcp-project/images/openmcp-operator
 			Image:        "ghcr.io/openmcp-project/images/openmcp-operator:v1.3.0",
 			Environment:  "debug",
 			PlatformName: "platform",
 		},
 		ClusterProviders: []providers.ClusterProviderSetup{
 			{
-				Name:  "kind",
-				Image: "ghcr.io/openmcp-project/images/cluster-provider-kind:v0.2.0",
+				Name: "kind",
+				// renovate: datasource=docker depName=ghcr.io/openmcp-project/images/cluster-provider-kind
+				Image: "ghcr.io/openmcp-project/images/cluster-provider-kind:v0.6.0",
 			},
 		},
 		ServiceProviders: []providers.ServiceProviderSetup{
@@ -42,6 +47,7 @@ func TestMain(m *testing.M) {
 				Name:               "oteloperatorservice",
 				Image:              fmt.Sprintf("ghcr.io/openmcp-project/images/service-provider-otel-operator:%s", version),
 				LoadImageToCluster: true,
+				WaitOpts:           []wait.Option{wait.WithTimeout(5 * time.Minute)},
 			},
 		},
 		Extensions: []extensions.Extension{
