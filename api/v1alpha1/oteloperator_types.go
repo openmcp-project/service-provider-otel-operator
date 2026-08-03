@@ -41,17 +41,17 @@ const (
 	LocationPlatform    ResourceLocation = "PlatformCluster"
 )
 
-// OtelOperatorServiceSpec defines the desired state of OtelOperatorService
-type OtelOperatorServiceSpec struct {
+// OtelOperatorSpec defines the desired state of OtelOperator
+type OtelOperatorSpec struct {
 	// Version is the opentelemetry-operator Helm chart version to install.
 	Version string `json:"version"`
 }
 
-// OtelOperatorServiceStatus defines the observed state of OtelOperatorService.
-type OtelOperatorServiceStatus struct {
+// OtelOperatorStatus defines the observed state of OtelOperator.
+type OtelOperatorStatus struct {
 	commonapi.Status `json:",inline"`
 
-	// Resources managed by this OtelOperatorService instance
+	// Resources managed by this OtelOperator instance
 	// +optional
 	Resources []ManagedResource `json:"resources,omitempty"`
 }
@@ -68,58 +68,58 @@ type ManagedResource struct {
 	Location ResourceLocation `json:"location,omitempty"`
 }
 
-// OtelOperatorService is the Schema for the oteloperatorservices API
+// OtelOperator is the Schema for the oteloperators API
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:JSONPath=`.status.phase`,name="Phase",type=string
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:metadata:labels="openmcp.cloud/cluster=onboarding"
-type OtelOperatorService struct {
+type OtelOperator struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// metadata is a standard object metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// spec defines the desired state of OtelOperatorService
+	// spec defines the desired state of OtelOperator
 	// +required
-	Spec OtelOperatorServiceSpec `json:"spec"`
+	Spec OtelOperatorSpec `json:"spec"`
 
-	// status defines the observed state of OtelOperatorService
+	// status defines the observed state of OtelOperator
 	// +optional
-	Status OtelOperatorServiceStatus `json:"status,omitempty,omitzero"`
+	Status OtelOperatorStatus `json:"status,omitempty,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// OtelOperatorServiceList contains a list of OtelOperatorService
-type OtelOperatorServiceList struct {
+// OtelOperatorList contains a list of OtelOperator
+type OtelOperatorList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []OtelOperatorService `json:"items"`
+	Items           []OtelOperator `json:"items"`
 }
 
-// Finalizer returns the finalizer string for the OtelOperatorService resource
-func (o *OtelOperatorService) Finalizer() string {
+// Finalizer returns the finalizer string for the OtelOperator resource
+func (o *OtelOperator) Finalizer() string {
 	return GroupVersion.Group + "/finalizer"
 }
 
-// GetStatus returns the status of the OtelOperatorService resource
-func (o *OtelOperatorService) GetStatus() any {
+// GetStatus returns the status of the OtelOperator resource
+func (o *OtelOperator) GetStatus() any {
 	return o.Status
 }
 
-// GetConditions returns the conditions of the OtelOperatorService resource
-func (o *OtelOperatorService) GetConditions() *[]metav1.Condition {
+// GetConditions returns the conditions of the OtelOperator resource
+func (o *OtelOperator) GetConditions() *[]metav1.Condition {
 	return &o.Status.Conditions
 }
 
-// SetPhase sets the phase of the OtelOperatorService resource status
-func (o *OtelOperatorService) SetPhase(phase string) {
+// SetPhase sets the phase of the OtelOperator resource status
+func (o *OtelOperator) SetPhase(phase string) {
 	o.Status.Phase = phase
 }
 
-// SetObservedGeneration sets the observed generation of the OtelOperatorService resource
-func (o *OtelOperatorService) SetObservedGeneration(gen int64) {
+// SetObservedGeneration sets the observed generation of the OtelOperator resource
+func (o *OtelOperator) SetObservedGeneration(gen int64) {
 	o.Status.ObservedGeneration = gen
 }

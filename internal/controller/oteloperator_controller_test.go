@@ -24,7 +24,7 @@ import (
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/mcpresources"
 )
 
-// onboardingScheme includes OtelOperatorService so the fake onboarding client accepts it.
+// onboardingScheme includes OtelOperator so the fake onboarding client accepts it.
 func onboardingScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = apiv1alpha1.AddToScheme(s)
@@ -73,11 +73,11 @@ func otelCollectorOnMCP(ns, name string) client.ObjectList {
 }
 
 func TestDelete_BlockedWhileOtelCRsExist(t *testing.T) {
-	obj := &apiv1alpha1.OtelOperatorService{}
+	obj := &apiv1alpha1.OtelOperator{}
 	obj.Name = "test"
 	obj.Namespace = "default"
 
-	r := &OtelOperatorServiceReconciler{OnboardingCluster: onboardingClient(obj)}
+	r := &OtelOperatorReconciler{OnboardingCluster: onboardingClient(obj)}
 
 	mcp := mcpClientWith(otelCollectorOnMCP("default", "my-collector"))
 	result, err := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusteraccess.ClusterContext{
@@ -94,14 +94,14 @@ func TestDelete_BlockedWhileOtelCRsExist(t *testing.T) {
 }
 
 func TestDelete_ProceedsWhenNoCRDsInstalled(t *testing.T) {
-	obj := &apiv1alpha1.OtelOperatorService{}
+	obj := &apiv1alpha1.OtelOperator{}
 	obj.Name = "test"
 	obj.Namespace = "default"
 
 	// Provide a stub PlatformCluster so createObjectManager doesn't nil-deref on RESTConfig.
 	// The test only cares that the deletion guard (BlockingKinds) doesn't block — errors from
 	// createObjectManager are expected and irrelevant here.
-	r := &OtelOperatorServiceReconciler{
+	r := &OtelOperatorReconciler{
 		OnboardingCluster: onboardingClient(),
 		PlatformCluster:   stubCluster(t, "platform"),
 	}
@@ -116,11 +116,11 @@ func TestDelete_ProceedsWhenNoCRDsInstalled(t *testing.T) {
 }
 
 func TestDelete_ProceedsWhenNoOtelCRs(t *testing.T) {
-	obj := &apiv1alpha1.OtelOperatorService{}
+	obj := &apiv1alpha1.OtelOperator{}
 	obj.Name = "test"
 	obj.Namespace = "default"
 
-	r := &OtelOperatorServiceReconciler{
+	r := &OtelOperatorReconciler{
 		OnboardingCluster: onboardingClient(),
 		PlatformCluster:   stubCluster(t, "platform"),
 	}

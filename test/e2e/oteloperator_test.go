@@ -25,7 +25,7 @@ import (
 
 const targetNamespace = "opentelemetry-operator-system"
 
-// ociRepositoryName and helmReleaseName match the object name set by the controller (= OtelOperatorService.Name).
+// ociRepositoryName and helmReleaseName match the object name set by the controller (= OtelOperator.Name).
 const testMCPName = "test-mcp"
 
 func TestServiceProvider(t *testing.T) {
@@ -38,7 +38,7 @@ func TestServiceProvider(t *testing.T) {
 			return ctx
 		}).
 		Setup(providers.CreateMCP(testMCPName)).
-		Assess("create OtelOperatorService and verify Ready",
+		Assess("create OtelOperator and verify Ready",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 				onboardingConfig, err := clusterutils.OnboardingConfig()
 				if err != nil {
@@ -117,7 +117,7 @@ func TestServiceProvider(t *testing.T) {
 				return ctx
 			},
 		).
-		Assess("delete OtelOperatorService and verify clean teardown",
+		Assess("delete OtelOperator and verify clean teardown",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 				onboardingConfig, err := clusterutils.OnboardingConfig()
 				if err != nil {

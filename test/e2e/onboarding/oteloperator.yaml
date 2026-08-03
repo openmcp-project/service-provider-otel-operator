@@ -1,5 +1,5 @@
 apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
-kind: OtelOperatorService
+kind: OtelOperator
 metadata:
   name: test-mcp
 spec:

@@ -20,9 +20,9 @@ import (
 
 func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 	cluster := &fakeManagedCluster{ns: "tenant-ns"}
-	obj := &apiv1alpha1.OtelOperatorService{
+	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-mcp", Namespace: "default"},
-		Spec:       apiv1alpha1.OtelOperatorServiceSpec{Version: "0.82.0"},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.82.0"},
 	}
 	pc := &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{
@@ -67,9 +67,9 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 
 func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	cluster := &fakeManagedCluster{ns: "tenant-ns"}
-	obj := &apiv1alpha1.OtelOperatorService{
+	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-mcp", Namespace: "default"},
-		Spec:       apiv1alpha1.OtelOperatorServiceSpec{Version: "1.2.3"},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "1.2.3"},
 	}
 	chartURL := "oci://ghcr.io/example/chart"
 	pc := &apiv1alpha1.ProviderConfig{
@@ -161,9 +161,9 @@ func TestFluxStatusUsesFluxConditionMessage(t *testing.T) {
 
 func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 	cluster := &fakeManagedCluster{ns: "tenant-ns"}
-	obj := &apiv1alpha1.OtelOperatorService{
+	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
-		Spec:       apiv1alpha1.OtelOperatorServiceSpec{Version: "0.1.0"},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.1.0"},
 	}
 	pc := &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{

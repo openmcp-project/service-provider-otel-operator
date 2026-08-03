@@ -6,14 +6,14 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.20.1
   labels:
     openmcp.cloud/cluster: onboarding
-  name: oteloperatorservices.oteloperator.services.openmcp.cloud
+  name: oteloperators.oteloperator.services.openmcp.cloud
 spec:
   group: oteloperator.services.openmcp.cloud
   names:
-    kind: OtelOperatorService
-    listKind: OtelOperatorServiceList
-    plural: oteloperatorservices
-    singular: oteloperatorservice
+    kind: OtelOperator
+    listKind: OtelOperatorList
+    plural: oteloperators
+    singular: oteloperator
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -26,8 +26,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: OtelOperatorService is the Schema for the oteloperatorservices
-          API
+        description: OtelOperator is the Schema for the oteloperators API
         properties:
           apiVersion:
             description: |-
@@ -47,7 +46,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of OtelOperatorService
+            description: spec defines the desired state of OtelOperator
             properties:
               version:
                 description: Version is the opentelemetry-operator Helm chart version
@@ -57,7 +56,7 @@ spec:
             - version
             type: object
           status:
-            description: status defines the observed state of OtelOperatorService
+            description: status defines the observed state of OtelOperator
             properties:
               conditions:
                 description: Conditions contains the conditions.
@@ -128,7 +127,7 @@ spec:
                 description: Phase is the current phase of the resource.
                 type: string
               resources:
-                description: Resources managed by this OtelOperatorService instance
+                description: Resources managed by this OtelOperator instance
                 items:
                   description: ManagedResource defines a kubernetes object with its
                     lifecycle phase

@@ -51,7 +51,7 @@ import (
 	"github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	"github.com/openmcp-project/service-provider-otel-operator/api/crds"
-	oteloperatorservicesv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
+	oteloperatorv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/internal/controller"
 )
 
@@ -71,7 +71,7 @@ func init() {
 func initPlatformScheme() {
 	utilruntime.Must(clientgoscheme.AddToScheme(platformScheme))
 	utilruntime.Must(apiextensionv1.AddToScheme(platformScheme))
-	utilruntime.Must(oteloperatorservicesv1alpha1.AddToScheme(platformScheme))
+	utilruntime.Must(oteloperatorv1alpha1.AddToScheme(platformScheme))
 	utilruntime.Must(clustersv1alpha1.AddToScheme(platformScheme))
 	utilruntime.Must(providerv1alpha1.AddToScheme(platformScheme))
 	utilruntime.Must(sourcev1.AddToScheme(platformScheme))
@@ -81,7 +81,7 @@ func initPlatformScheme() {
 func initOnboardingScheme() {
 	utilruntime.Must(clientgoscheme.AddToScheme(onboardingScheme))
 	utilruntime.Must(apiextensionv1.AddToScheme(onboardingScheme))
-	utilruntime.Must(oteloperatorservicesv1alpha1.AddToScheme(onboardingScheme))
+	utilruntime.Must(oteloperatorv1alpha1.AddToScheme(onboardingScheme))
 }
 
 func initMcpScheme() {
@@ -213,7 +213,7 @@ func main() {
 		},
 	}
 	clusterAccessManager := libclusteraccess.NewClusterAccessManager(platformCluster.Client(),
-		"oteloperatorservice.oteloperator.services.openmcp.cloud", os.Getenv("POD_NAMESPACE"))
+		"oteloperator.oteloperator.services.openmcp.cloud", os.Getenv("POD_NAMESPACE"))
 	clusterAccessManager.WithLogger(&log).
 		WithInterval(10 * time.Second).
 		WithTimeout(30 * time.Minute)
@@ -236,9 +236,9 @@ func main() {
 		}
 
 		spGVK := metav1.GroupVersionKind{
-			Group:   oteloperatorservicesv1alpha1.GroupVersion.Group,
-			Version: oteloperatorservicesv1alpha1.GroupVersion.Version,
-			Kind:    "OtelOperatorService",
+			Group:   oteloperatorv1alpha1.GroupVersion.Group,
+			Version: oteloperatorv1alpha1.GroupVersion.Version,
+			Kind:    "OtelOperator",
 		}
 		if err := utils.RegisterGVKsAtServiceProvider(ctx, platformCluster.Client(), providerName, spGVK); err != nil {
 			setupLog.Error(err, "Failed to register GVK at ServiceProvider")
@@ -272,7 +272,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	clusterAccessReconciler := libclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "oteloperatorservice").
+	clusterAccessReconciler := libclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "oteloperator").
 		WithMCPScheme(mcpScheme).
 		WithRetryInterval(10 * time.Second).
 		WithMCPPermissions(adminPermissions).
@@ -284,17 +284,17 @@ func main() {
 		}).
 		SkipWorkloadCluster()
 
-	spr := serviceprovider.NewAPIReconcilerBuilder[*oteloperatorservicesv1alpha1.OtelOperatorService, *oteloperatorservicesv1alpha1.ProviderConfig]().
-		EmptyObjectProvider(func() *oteloperatorservicesv1alpha1.OtelOperatorService {
-			return &oteloperatorservicesv1alpha1.OtelOperatorService{}
+	spr := serviceprovider.NewAPIReconcilerBuilder[*oteloperatorv1alpha1.OtelOperator, *oteloperatorv1alpha1.ProviderConfig]().
+		EmptyObjectProvider(func() *oteloperatorv1alpha1.OtelOperator {
+			return &oteloperatorv1alpha1.OtelOperator{}
 		}).
-		EmptyConfigProvider(func() *oteloperatorservicesv1alpha1.ProviderConfig {
-			return &oteloperatorservicesv1alpha1.ProviderConfig{}
+		EmptyConfigProvider(func() *oteloperatorv1alpha1.ProviderConfig {
+			return &oteloperatorv1alpha1.ProviderConfig{}
 		}).
 		PlatformCluster(platformCluster).
 		OnboardingCluster(onboardingCluster).
 		ClusterAccessReconciler(clusterAccessReconciler).
-		Reconciler(&controller.OtelOperatorServiceReconciler{
+		Reconciler(&controller.OtelOperatorReconciler{
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
@@ -303,7 +303,7 @@ func main() {
 		MustBuild()
 
 	if err := spr.SetupWithManager(mgr, providerName); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "OtelOperatorService")
+		setupLog.Error(err, "unable to create controller", "controller", "OtelOperator")
 		os.Exit(1)
 	}
 
