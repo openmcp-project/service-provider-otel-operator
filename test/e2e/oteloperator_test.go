@@ -26,7 +26,7 @@ import (
 const targetNamespace = "opentelemetry-operator-system"
 
 // ociRepositoryName and helmReleaseName match the object name set by the controller (= OtelOperator.Name).
-const testMCPName = "test-mcp"
+const testCPName = "test-cp"
 
 func TestServiceProvider(t *testing.T) {
 	var onboardingList unstructured.UnstructuredList
@@ -37,7 +37,7 @@ func TestServiceProvider(t *testing.T) {
 			}
 			return ctx
 		}).
-		Setup(providers.CreateMCP(testMCPName)).
+		Setup(providers.CreateMCP(testCPName)).
 		Assess("create OtelOperator and verify Ready",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 				onboardingConfig, err := clusterutils.OnboardingConfig()
@@ -77,14 +77,14 @@ func TestServiceProvider(t *testing.T) {
 					t.Errorf("failed to get platform cluster config: %v", err)
 					return ctx
 				}
-				tenantNamespace, err := libutils.StableMCPNamespace(testMCPName, corev1.NamespaceDefault)
+				tenantNamespace, err := libutils.StableMCPNamespace(testCPName, corev1.NamespaceDefault)
 				if err != nil {
 					t.Errorf("failed to get tenant namespace: %v", err)
 					return ctx
 				}
 
 				ociRepo := &sourcev1.OCIRepository{}
-				ociRepo.SetName(testMCPName)
+				ociRepo.SetName(testCPName)
 				ociRepo.SetNamespace(tenantNamespace)
 				if err := wait.For(openmcpconditions.Match(ociRepo, platformConfig, "Ready", corev1.ConditionTrue),
 					wait.WithTimeout(5*time.Minute)); err != nil {
@@ -92,7 +92,7 @@ func TestServiceProvider(t *testing.T) {
 				}
 
 				helmRelease := &helmv2.HelmRelease{}
-				helmRelease.SetName(testMCPName)
+				helmRelease.SetName(testCPName)
 				helmRelease.SetNamespace(tenantNamespace)
 				if err := wait.For(openmcpconditions.Match(helmRelease, platformConfig, "Ready", corev1.ConditionTrue),
 					wait.WithTimeout(5*time.Minute)); err != nil {
@@ -101,15 +101,15 @@ func TestServiceProvider(t *testing.T) {
 				return ctx
 			},
 		).
-		Assess("verify operator deployment exists in MCP",
+		Assess("verify operator deployment exists in CP",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
-				mcpConfig, err := clusterutils.MCPConfig(ctx, c, testMCPName)
+				cpConfig, err := clusterutils.MCPConfig(ctx, c, testCPName)
 				if err != nil {
 					t.Error(err)
 					return ctx
 				}
 				dep := &appsv1.DeploymentList{}
-				if err := wait.For(conditions.New(mcpConfig.Client().Resources(targetNamespace)).
+				if err := wait.For(conditions.New(cpConfig.Client().Resources(targetNamespace)).
 					ResourceListN(dep, 1),
 					wait.WithTimeout(5*time.Minute)); err != nil {
 					t.Errorf("operator deployment not found in namespace %s: %v", targetNamespace, err)
@@ -146,6 +146,6 @@ func TestServiceProvider(t *testing.T) {
 			}
 			return ctx
 		}).
-		Teardown(providers.DeleteMCP(testMCPName, wait.WithTimeout(5*time.Minute)))
+		Teardown(providers.DeleteMCP(testCPName, wait.WithTimeout(5*time.Minute)))
 	testenv.Test(t, basicProviderTest.Feature())
 }

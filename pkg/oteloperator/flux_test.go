@@ -33,7 +33,7 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 
 	ManageFluxResources(ManageFluxResourcesParams{
 		Cluster:        cluster,
-		MCPNamespace:   "opentelemetry-operator-system",
+		CPNamespace:   "opentelemetry-operator-system",
 		Obj:            obj,
 		ProviderConfig: pc,
 		ClusterContext: clusteraccess.ClusterContext{
@@ -82,7 +82,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 
 	ManageFluxResources(ManageFluxResourcesParams{
 		Cluster:             cluster,
-		MCPNamespace:        "otel-system",
+		CPNamespace:        "otel-system",
 		ChartPullSecretName: "my-secret",
 		Obj:                 obj,
 		ProviderConfig:      pc,
@@ -173,7 +173,7 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 
 	ManageFluxResources(ManageFluxResourcesParams{
 		Cluster:        cluster,
-		MCPNamespace:   "ns",
+		CPNamespace:   "ns",
 		Obj:            obj,
 		ProviderConfig: pc,
 		ClusterContext: clusteraccess.ClusterContext{

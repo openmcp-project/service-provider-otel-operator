@@ -37,7 +37,7 @@ const (
 	Terminating InstancePhase = "Terminating"
 	Unknown     InstancePhase = "Unknown"
 
-	ManagedControlPlane ResourceLocation = "ManagedControlPlane"
+	ControlPlane ResourceLocation = "ControlPlane"
 	LocationPlatform    ResourceLocation = "PlatformCluster"
 )
 

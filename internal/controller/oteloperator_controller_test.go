@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/mcpresources"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
 )
 
 // onboardingScheme includes OtelOperator so the fake onboarding client accepts it.
@@ -44,16 +44,16 @@ func HideCrdInterceptor(hiddenCRDs ...string) interceptor.Funcs {
 	}
 }
 
-func mcpClientWith(objs ...client.ObjectList) *clusters.Cluster {
+func cpClientWith(objs ...client.ObjectList) *clusters.Cluster {
 	cl := fake.NewClientBuilder().WithLists(objs...).Build()
-	return clusters.NewTestClusterFromClient("mcp", cl)
+	return clusters.NewTestClusterFromClient("cp", cl)
 }
 
-func mcpClientNoCRDs() *clusters.Cluster {
+func cpClientNoCRDs() *clusters.Cluster {
 	cl := fake.NewClientBuilder().WithInterceptorFuncs(
 		HideCrdInterceptor("OpenTelemetryCollectorList", "InstrumentationList"),
 	).Build()
-	return clusters.NewTestClusterFromClient("mcp", cl)
+	return clusters.NewTestClusterFromClient("cp", cl)
 }
 
 func onboardingClient(objs ...client.Object) *clusters.Cluster {
@@ -62,10 +62,10 @@ func onboardingClient(objs ...client.Object) *clusters.Cluster {
 	return clusters.NewTestClusterFromClient("onboarding", cl)
 }
 
-func otelCollectorOnMCP(ns, name string) client.ObjectList {
+func otelCollectorOnCP(ns, name string) client.ObjectList {
 	u := unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: mcpresources.OtelGroup, Version: mcpresources.OtelVersion, Kind: "OpenTelemetryCollector",
+		Group: cpresources.OtelGroup, Version: cpresources.OtelVersion, Kind: "OpenTelemetryCollector",
 	})
 	u.SetNamespace(ns)
 	u.SetName(name)
@@ -79,9 +79,9 @@ func TestDelete_BlockedWhileOtelCRsExist(t *testing.T) {
 
 	r := &OtelOperatorReconciler{OnboardingCluster: onboardingClient(obj)}
 
-	mcp := mcpClientWith(otelCollectorOnMCP("default", "my-collector"))
+	cp := cpClientWith(otelCollectorOnCP("default", "my-collector"))
 	result, err := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusteraccess.ClusterContext{
-		MCPCluster: mcp,
+		MCPCluster: cp,
 	})
 
 	require.NoError(t, err)
@@ -106,9 +106,9 @@ func TestDelete_ProceedsWhenNoCRDsInstalled(t *testing.T) {
 		PlatformCluster:   stubCluster(t, "platform"),
 	}
 
-	mcp := mcpClientNoCRDs()
+	cp := cpClientNoCRDs()
 	result, _ := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusteraccess.ClusterContext{
-		MCPCluster: mcp,
+		MCPCluster: cp,
 	})
 
 	// Guard must not block (RequeueAfter == 0). Errors from missing helm/flux config are fine.
@@ -125,9 +125,9 @@ func TestDelete_ProceedsWhenNoOtelCRs(t *testing.T) {
 		PlatformCluster:   stubCluster(t, "platform"),
 	}
 
-	mcp := mcpClientWith() // CRDs present, no CRs
+	cp := cpClientWith() // CRDs present, no CRs
 	result, _ := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusteraccess.ClusterContext{
-		MCPCluster: mcp,
+		MCPCluster: cp,
 	})
 
 	assert.Equal(t, float64(0), result.RequeueAfter.Seconds(), "guard must not block when no CRs exist")

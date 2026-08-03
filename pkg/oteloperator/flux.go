@@ -19,7 +19,7 @@ import (
 // ManageFluxResourcesParams groups all parameters to create the required Flux resources.
 type ManageFluxResourcesParams struct {
 	Cluster             ManagedCluster
-	MCPNamespace        string
+	CPNamespace         string
 	ChartPullSecretName string
 	Obj                 *apiv1alpha1.OtelOperator
 	ProviderConfig      *apiv1alpha1.ProviderConfig
@@ -98,8 +98,8 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 					DisableSchemaValidation: true,
 				},
 				Values:           p.ProviderConfig.Spec.HelmValues,
-				TargetNamespace:  p.MCPNamespace,
-				StorageNamespace: p.MCPNamespace,
+				TargetNamespace:  p.CPNamespace,
+				StorageNamespace: p.CPNamespace,
 			}
 			return nil
 		},

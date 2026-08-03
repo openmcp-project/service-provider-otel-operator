@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mcpresources
+package cpresources
 
 import (
 	"context"
@@ -34,7 +34,7 @@ const (
 	OtelVersion = "v1alpha1"
 )
 
-// otelListGVKs are the list GVKs for CRs that the opentelemetry-operator installs on the MCP.
+// otelListGVKs are the list GVKs for CRs that the opentelemetry-operator installs on the control plane.
 // Keep in sync with https://github.com/open-telemetry/opentelemetry-operator/tree/main/apis
 var otelListGVKs = []schema.GroupVersionKind{
 	{Group: OtelGroup, Version: OtelVersion, Kind: "OpenTelemetryCollectorList"},
