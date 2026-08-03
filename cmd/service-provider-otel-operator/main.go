@@ -58,7 +58,7 @@ import (
 var (
 	platformScheme   = runtime.NewScheme()
 	onboardingScheme = runtime.NewScheme()
-	cpScheme        = runtime.NewScheme()
+	cpScheme         = runtime.NewScheme()
 	setupLog         = ctrl.Log.WithName("setup")
 )
 

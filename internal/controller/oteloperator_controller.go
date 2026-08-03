@@ -156,7 +156,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 
 	oteloperator.ManageFluxResources(oteloperator.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
-		CPNamespace:        otelOperatorNamespace,
+		CPNamespace:         otelOperatorNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
 		ProviderConfig:      pc,
