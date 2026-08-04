@@ -37,8 +37,8 @@ const (
 	Terminating InstancePhase = "Terminating"
 	Unknown     InstancePhase = "Unknown"
 
-	ManagedControlPlane ResourceLocation = "ManagedControlPlane"
-	LocationPlatform    ResourceLocation = "PlatformCluster"
+	ControlPlane     ResourceLocation = "ControlPlane"
+	LocationPlatform ResourceLocation = "PlatformCluster"
 )
 
 // OtelOperatorSpec defines the desired state of OtelOperator

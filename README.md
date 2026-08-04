@@ -2,16 +2,16 @@
 
 # Service Provider: OTEL Operator
 
-An [OpenMCP](https://github.com/openmcp-project) Service Provider that automates the deployment and lifecycle management of the [OpenTelemetry Operator](https://github.com/open-telemetry/opentelemetry-operator) into Managed Control Planes (MCPs) via Helm.
+An [OpenMCP](https://github.com/openmcp-project) Service Provider that automates the deployment and lifecycle management of the [OpenTelemetry Operator](https://github.com/open-telemetry/opentelemetry-operator) into Control Planes (CPs) via Helm.
 
 ## Overview
 
-This service provider installs the OpenTelemetry Operator into each MCP that requests one. The operator is deployed using the official [opentelemetry-operator Helm chart](https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-operator). Once the operator is running, users can create `OpenTelemetryCollector` custom resources in the MCP to configure and manage collector instances.
+This service provider installs the OpenTelemetry Operator into each CP that requests one. The operator is deployed using the official [opentelemetry-operator Helm chart](https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-operator). Once the operator is running, users can create `OpenTelemetryCollector` custom resources in the CP to configure and manage collector instances.
 
 ### Architecture
 
 ```
-Platform Cluster                  MCP (per tenant)
+Platform Cluster                  CP (per tenant)
 ┌─────────────────────┐           ┌──────────────────────────────────────────┐
 │  ProviderConfig     │           │  namespace: opentelemetry-operator-system│
 │  (cluster-scoped)   │           │                                          │
@@ -23,27 +23,27 @@ Platform Cluster                  MCP (per tenant)
                                   │  OpenTelemetryCollector CRs              │ ← user creates
 Onboarding Cluster                └──────────────────────────────────────────┘
 ┌──────────────────────┐
-│  OtelOperator        │ ← one per MCP
-│  (per-MCP overrides) │
+│  OtelOperator        │ ← one per CP
+│  (per-CP overrides)  │
 └──────────────────────┘
 ```
 
 ### Reconciliation Flow
 
 1. Set status to `Progressing`
-2. Ensure the target namespace exists in the MCP
-3. Sync image pull secrets from the platform cluster to the MCP (if configured)
-4. Merge Helm values (ProviderConfig defaults + per-MCP overrides)
+2. Ensure the target namespace exists in the CP
+3. Sync image pull secrets from the platform cluster to the CP (if configured)
+4. Merge Helm values (ProviderConfig defaults + per-CP overrides)
 5. Install or upgrade the `opentelemetry-operator` Helm release
 6. Set status to `Ready`
 
-On **deletion**, the service provider uninstalls the Helm release, which removes all operator-managed resources from the MCP.
+On **deletion**, the service provider uninstalls the Helm release, which removes all operator-managed resources from the CP.
 
 ### cert-manager
 
-The OpenTelemetry Operator Helm chart supports cert-manager for webhook certificate management. By default, this service provider disables cert-manager and uses auto-generated self-signed certificates instead (`admissionWebhooks.autoGenerateCert.enabled: true`). This makes the operator self-contained without requiring cert-manager in the MCP.
+The OpenTelemetry Operator Helm chart supports cert-manager for webhook certificate management. By default, this service provider disables cert-manager and uses auto-generated self-signed certificates instead (`admissionWebhooks.autoGenerateCert.enabled: true`). This makes the operator self-contained without requiring cert-manager in the CP.
 
-If cert-manager is available in your MCPs, you can enable it via the ProviderConfig's `helmValues`:
+If cert-manager is available in your CPs, you can enable it via the ProviderConfig's `helmValues`:
 
 ```yaml
 spec:
@@ -59,13 +59,13 @@ spec:
 
 ### OtelOperator (onboarding cluster)
 
-Created per MCP to request an OpenTelemetry Operator installation. All fields are optional overrides — defaults come from the ProviderConfig.
+Created per CP to request an OpenTelemetry Operator installation. All fields are optional overrides — defaults come from the ProviderConfig.
 
 ```yaml
 apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
 kind: OtelOperator
 metadata:
-  name: my-mcp
+  name: my-cp
 spec:
   # All fields are optional — defaults from ProviderConfig are used if omitted
   chartVersion: "0.82.0"
@@ -78,7 +78,7 @@ spec:
 
 ### ProviderConfig (platform cluster)
 
-Cluster-scoped resource that provides default values for all MCPs.
+Cluster-scoped resource that provides default values for all CPs.
 
 ```yaml
 apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
@@ -114,7 +114,7 @@ spec:
 │   └── resources/                   # Kubernetes resource helpers
 │       ├── constants.go             # Labels
 │       ├── namespace.go             # Namespace reconciliation
-│       └── imagepullsecret.go       # Image pull secret sync (platform → MCP)
+│       └── imagepullsecret.go       # Image pull secret sync (platform → CP)
 ├── pkg/
 │   └── spruntime/                   # Generic SP/PC reconciler framework
 ├── test/

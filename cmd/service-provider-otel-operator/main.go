@@ -58,14 +58,14 @@ import (
 var (
 	platformScheme   = runtime.NewScheme()
 	onboardingScheme = runtime.NewScheme()
-	mcpScheme        = runtime.NewScheme()
+	cpScheme         = runtime.NewScheme()
 	setupLog         = ctrl.Log.WithName("setup")
 )
 
 func init() {
 	initPlatformScheme()
 	initOnboardingScheme()
-	initMcpScheme()
+	initCPScheme()
 }
 
 func initPlatformScheme() {
@@ -84,9 +84,9 @@ func initOnboardingScheme() {
 	utilruntime.Must(oteloperatorv1alpha1.AddToScheme(onboardingScheme))
 }
 
-func initMcpScheme() {
-	utilruntime.Must(clientgoscheme.AddToScheme(mcpScheme))
-	utilruntime.Must(apiextensionv1.AddToScheme(mcpScheme))
+func initCPScheme() {
+	utilruntime.Must(clientgoscheme.AddToScheme(cpScheme))
+	utilruntime.Must(apiextensionv1.AddToScheme(cpScheme))
 }
 
 // nolint:gocyclo
@@ -273,7 +273,7 @@ func main() {
 	}
 
 	clusterAccessReconciler := libclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "oteloperator").
-		WithMCPScheme(mcpScheme).
+		WithMCPScheme(cpScheme).
 		WithRetryInterval(10 * time.Second).
 		WithMCPPermissions(adminPermissions).
 		WithMCPRoleRefs([]common.RoleRef{

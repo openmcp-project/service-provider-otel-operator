@@ -38,7 +38,7 @@ import (
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/mcpresources"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
 )
 
 const namespaceOtelOperator = "opentelemetry-operator-system"
@@ -76,7 +76,7 @@ func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1a
 
 // Delete is called on every delete event
 func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
-	blockingKinds, err := mcpresources.BlockingKinds(ctx, clusterCtx.MCPCluster.Client())
+	blockingKinds, err := cpresources.BlockingKinds(ctx, clusterCtx.MCPCluster.Client())
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
@@ -129,10 +129,10 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	if helmValues.NamespaceOverride != "" {
 		otelOperatorNamespace = helmValues.NamespaceOverride
 	}
-	mcpCluster := oteloperator.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, oteloperator.ClusterTypeMCP)
+	cpCluster := oteloperator.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, oteloperator.ClusterTypeCP)
 
 	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		oteloperator.ManagePullSecret(mcpCluster, imagePullSecret, oteloperator.SecretCopyConfig{
+		oteloperator.ManagePullSecret(cpCluster, imagePullSecret, oteloperator.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: otelOperatorNamespace,
@@ -156,7 +156,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 
 	oteloperator.ManageFluxResources(oteloperator.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
-		MCPNamespace:        otelOperatorNamespace,
+		CPNamespace:         otelOperatorNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
 		ProviderConfig:      pc,
@@ -164,7 +164,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	})
 
 	mgr := oteloperator.NewManager()
-	mgr.AddCluster(mcpCluster)
+	mgr.AddCluster(cpCluster)
 	mgr.AddCluster(platformCluster)
 	return mgr, nil
 }
