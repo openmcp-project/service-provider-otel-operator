@@ -10,11 +10,11 @@ import (
 
 // Cluster type constants.
 const (
-	ClusterTypeMCP      ClusterType = "ManagedControlPlane"
+	ClusterTypeCP       ClusterType = "ControlPlane"
 	ClusterTypePlatform ClusterType = "PlatformCluster"
 )
 
-// ClusterType distinguishes between managed control plane and platform clusters.
+// ClusterType distinguishes between control plane and platform clusters.
 type ClusterType string
 
 // NewManagedCluster creates a new ManagedCluster instance.
