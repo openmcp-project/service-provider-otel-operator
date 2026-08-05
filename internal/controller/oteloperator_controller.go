@@ -42,6 +42,7 @@ import (
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authz"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/instance"
 )
 
 const namespaceOtelOperator = "opentelemetry-operator-system"
@@ -56,6 +57,10 @@ type OtelOperatorReconciler struct {
 // CreateOrUpdate is called on every add or update event
 func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+	if err := r.ensureInstanceID(ctx, obj); err != nil {
+		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
+		return ctrl.Result{}, err
+	}
 	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
@@ -132,8 +137,9 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	if helmValues.NamespaceOverride != "" {
 		otelOperatorNamespace = helmValues.NamespaceOverride
 	}
+	workloadNamespace := instance.Namespace(obj)
 	cpCluster := oteloperator.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, oteloperator.ClusterTypeCP)
-	workloadCluster := oteloperator.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), otelOperatorNamespace, oteloperator.ClusterTypeWorkload)
+	workloadCluster := oteloperator.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), workloadNamespace, oteloperator.ClusterTypeWorkload)
 
 	// ServiceAccount on CP + token Secret on workload so otel-operator connects to CP API.
 	cpServiceAccount := &authn.ManagedServiceAccount{
@@ -180,7 +186,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	oteloperator.ManageFluxResources(oteloperator.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
 		CPNamespace:         otelOperatorNamespace,
-		WorkloadNamespace:   otelOperatorNamespace,
+		WorkloadNamespace:   workloadNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
 		ProviderConfig:      pcWithAuth,
@@ -258,4 +264,14 @@ func joinStrings(ss []string) string {
 		b.WriteString(s)
 	}
 	return b.String()
+}
+
+func (r *OtelOperatorReconciler) ensureInstanceID(ctx context.Context, obj *apiv1alpha1.OtelOperator) error {
+	if instance.GetID(obj) == "" {
+		instance.SetID(obj, instance.GenerateID(obj))
+		if err := r.OnboardingCluster.Client().Update(ctx, obj); err != nil {
+			return fmt.Errorf("failed to set instance id of otel operator resource %s/%s: %w", obj.Namespace, obj.Name, err)
+		}
+	}
+	return nil
 }
