@@ -19,11 +19,12 @@ package authz
 import (
 	"context"
 
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
 )
 
 const clusterRoleBindingName = "otel-operator-server"

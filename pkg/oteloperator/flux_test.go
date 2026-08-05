@@ -37,11 +37,11 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
-		Cluster:        cluster,
-		CPNamespace:    "opentelemetry-operator-system",
+		Cluster:           cluster,
+		CPNamespace:       "opentelemetry-operator-system",
 		WorkloadNamespace: "opentelemetry-operator-system",
-		Obj:            obj,
-		ProviderConfig: pc,
+		Obj:               obj,
+		ProviderConfig:    pc,
 		ClusterContext: clusteraccess.ClusterContext{
 			WorkloadAccessSecretKey: client.ObjectKey{Name: "wl-kubeconfig", Namespace: testTenantNS},
 		},

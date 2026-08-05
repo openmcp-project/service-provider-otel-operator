@@ -34,13 +34,12 @@ func ExtractHelmValues(values *apiextensionsv1.JSON) (*HelmValues, error) {
 // AddAuthToHelmValues injects the CP cluster ServiceAccount token secret as a volume and
 // overrides KUBERNETES_SERVICE_HOST/PORT so the otel-operator running on the workload cluster
 // connects to the CP cluster API instead of the local in-cluster API.
+// nolint:gocyclo
 func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, error) {
 	authVolume := corev1.Volume{
 		Name: "kube-api-access",
 		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName: saSecretName,
-			},
+			Secret: &corev1.SecretVolumeSource{SecretName: saSecretName},
 		},
 	}
 	authVolumeMount := corev1.VolumeMount{
@@ -49,8 +48,6 @@ func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster,
 		MountPath: "/var/run/secrets/kubernetes.io/serviceaccount",
 	}
 	remoteHost, remotePort := cpCluster.GetHostAndPort()
-	hostEnvVar := corev1.EnvVar{Name: "KUBERNETES_SERVICE_HOST", Value: remoteHost}
-	portEnvVar := corev1.EnvVar{Name: "KUBERNETES_SERVICE_PORT", Value: remotePort}
 
 	var root = map[string]json.RawMessage{}
 	if values != nil && len(values.Raw) > 0 {
@@ -66,47 +63,14 @@ func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster,
 	if err := unmarshalIfPresent(root, "extraVolumes", &extraVolumes); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal extraVolumes: %w", err)
 	}
-	extraVolumes = removeConflictingVolumesAndAppend(extraVolumes, authVolume)
-	extraVolumesRaw, err := json.Marshal(extraVolumes)
+	extraVolumesRaw, err := json.Marshal(removeConflictingVolumesAndAppend(extraVolumes, authVolume))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal extraVolumes: %w", err)
 	}
 	root["extraVolumes"] = extraVolumesRaw
 
-	for _, section := range []string{"manager"} {
-		var sectionValues map[string]json.RawMessage
-		if err := unmarshalIfPresent(root, section, &sectionValues); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal %s: %w", section, err)
-		}
-		if sectionValues == nil {
-			sectionValues = make(map[string]json.RawMessage)
-		}
-		var mounts []corev1.VolumeMount
-		var envs []corev1.EnvVar
-		if err := unmarshalIfPresent(sectionValues, "extraVolumeMounts", &mounts); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal %s.extraVolumeMounts: %w", section, err)
-		}
-		if err := unmarshalIfPresent(sectionValues, "extraEnv", &envs); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal %s.extraEnv: %w", section, err)
-		}
-		mounts = removeConflictingVolumeMountsAndAppend(mounts, authVolumeMount)
-		envs = removeConflictingEnvVarsAndAppend(envs, hostEnvVar)
-		envs = removeConflictingEnvVarsAndAppend(envs, portEnvVar)
-		mountsRaw, err := json.Marshal(mounts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal %s.extraVolumeMounts: %w", section, err)
-		}
-		envsRaw, err := json.Marshal(envs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal %s.extraEnv: %w", section, err)
-		}
-		sectionValues["extraVolumeMounts"] = mountsRaw
-		sectionValues["extraEnv"] = envsRaw
-		sectionValuesRaw, err := json.Marshal(sectionValues)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal %s: %w", section, err)
-		}
-		root[section] = sectionValuesRaw
+	if err := injectAuthIntoSection(root, "manager", authVolumeMount, remoteHost, remotePort); err != nil {
+		return nil, err
 	}
 
 	out, err := json.Marshal(root)
@@ -114,6 +78,43 @@ func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster,
 		return nil, fmt.Errorf("failed to marshal helm values: %w", err)
 	}
 	return &apiextensionsv1.JSON{Raw: out}, nil
+}
+
+func injectAuthIntoSection(root map[string]json.RawMessage, section string, mount corev1.VolumeMount, host, port string) error {
+	hostEnvVar := corev1.EnvVar{Name: "KUBERNETES_SERVICE_HOST", Value: host}
+	portEnvVar := corev1.EnvVar{Name: "KUBERNETES_SERVICE_PORT", Value: port}
+
+	var sectionValues map[string]json.RawMessage
+	if err := unmarshalIfPresent(root, section, &sectionValues); err != nil {
+		return fmt.Errorf("failed to unmarshal %s: %w", section, err)
+	}
+	if sectionValues == nil {
+		sectionValues = make(map[string]json.RawMessage)
+	}
+	var mounts []corev1.VolumeMount
+	var envs []corev1.EnvVar
+	if err := unmarshalIfPresent(sectionValues, "extraVolumeMounts", &mounts); err != nil {
+		return fmt.Errorf("failed to unmarshal %s.extraVolumeMounts: %w", section, err)
+	}
+	if err := unmarshalIfPresent(sectionValues, "extraEnv", &envs); err != nil {
+		return fmt.Errorf("failed to unmarshal %s.extraEnv: %w", section, err)
+	}
+	mountsRaw, err := json.Marshal(removeConflictingVolumeMountsAndAppend(mounts, mount))
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s.extraVolumeMounts: %w", section, err)
+	}
+	envsRaw, err := json.Marshal(removeConflictingEnvVarsAndAppend(removeConflictingEnvVarsAndAppend(envs, hostEnvVar), portEnvVar))
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s.extraEnv: %w", section, err)
+	}
+	sectionValues["extraVolumeMounts"] = mountsRaw
+	sectionValues["extraEnv"] = envsRaw
+	sectionValuesRaw, err := json.Marshal(sectionValues)
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s: %w", section, err)
+	}
+	root[section] = sectionValuesRaw
+	return nil
 }
 
 func unmarshalIfPresent(obj map[string]json.RawMessage, key string, out any) error {

@@ -35,9 +35,6 @@ import (
 )
 
 const (
-	serviceAccountMountPath = "/var/run/secrets/kubernetes.io/serviceaccount"
-	serviceAccountVolume    = "kube-api-access"
-
 	annotationTokenExpirationTime = "oteloperator.services.openmcp.cloud/token-expiration-time"
 )
 
