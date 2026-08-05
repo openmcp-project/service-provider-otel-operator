@@ -18,10 +18,15 @@ import (
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 )
 
+const (
+	testTenantNS = "tenant-ns"
+	testMCPName  = "test-mcp"
+)
+
 func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
-	cluster := &fakeManagedCluster{ns: "tenant-ns"}
+	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-mcp", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.82.0"},
 	}
 	pc := &apiv1alpha1.ProviderConfig{
@@ -37,7 +42,7 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 		Obj:            obj,
 		ProviderConfig: pc,
 		ClusterContext: clusteraccess.ClusterContext{
-			MCPAccessSecretKey: client.ObjectKey{Name: "mcp-kubeconfig", Namespace: "tenant-ns"},
+			MCPAccessSecretKey: client.ObjectKey{Name: "mcp-kubeconfig", Namespace: testTenantNS},
 		},
 	})
 
@@ -49,10 +54,10 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 	if _, ok := ociObj.(*sourcev1.OCIRepository); !ok {
 		t.Errorf("first object should be OCIRepository, got %T", ociObj)
 	}
-	if ociObj.GetName() != "test-mcp" {
+	if ociObj.GetName() != testMCPName {
 		t.Errorf("OCIRepository name: expected test-mcp, got %s", ociObj.GetName())
 	}
-	if ociObj.GetNamespace() != "tenant-ns" {
+	if ociObj.GetNamespace() != testTenantNS {
 		t.Errorf("OCIRepository namespace: expected tenant-ns, got %s", ociObj.GetNamespace())
 	}
 
@@ -60,15 +65,15 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 	if _, ok := hrObj.(*helmv2.HelmRelease); !ok {
 		t.Errorf("second object should be HelmRelease, got %T", hrObj)
 	}
-	if hrObj.GetName() != "test-mcp" {
+	if hrObj.GetName() != testMCPName {
 		t.Errorf("HelmRelease name: expected test-mcp, got %s", hrObj.GetName())
 	}
 }
 
 func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
-	cluster := &fakeManagedCluster{ns: "tenant-ns"}
+	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-mcp", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "1.2.3"},
 	}
 	chartURL := "oci://ghcr.io/example/chart"
@@ -87,7 +92,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		Obj:                 obj,
 		ProviderConfig:      pc,
 		ClusterContext: clusteraccess.ClusterContext{
-			MCPAccessSecretKey: client.ObjectKey{Name: "mcp-kubeconfig", Namespace: "tenant-ns"},
+			MCPAccessSecretKey: client.ObjectKey{Name: "mcp-kubeconfig", Namespace: testTenantNS},
 		},
 	})
 
@@ -120,7 +125,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	if hr.Spec.KubeConfig == nil || hr.Spec.KubeConfig.SecretRef.Name != "mcp-kubeconfig" {
 		t.Errorf("HelmRelease KubeConfig: expected mcp-kubeconfig, got %v", hr.Spec.KubeConfig)
 	}
-	if hr.Spec.ChartRef == nil || hr.Spec.ChartRef.Name != "test-mcp" {
+	if hr.Spec.ChartRef == nil || hr.Spec.ChartRef.Name != testMCPName {
 		t.Errorf("HelmRelease ChartRef: expected test-mcp, got %v", hr.Spec.ChartRef)
 	}
 	if hr.Spec.Values == nil || string(hr.Spec.Values.Raw) != `{"key":"value"}` {
@@ -131,7 +136,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	if len(deps) != 1 {
 		t.Fatalf("HelmRelease should depend on 1 object, got %d", len(deps))
 	}
-	if deps[0].GetObject().GetName() != "test-mcp" {
+	if deps[0].GetObject().GetName() != testMCPName {
 		t.Errorf("HelmRelease dependency should be OCIRepository test-mcp")
 	}
 }
@@ -160,7 +165,7 @@ func TestFluxStatusUsesFluxConditionMessage(t *testing.T) {
 }
 
 func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
-	cluster := &fakeManagedCluster{ns: "tenant-ns"}
+	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.1.0"},
