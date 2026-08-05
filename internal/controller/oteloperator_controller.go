@@ -25,6 +25,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -38,6 +39,8 @@ import (
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authz"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
 )
 
@@ -130,9 +133,29 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		otelOperatorNamespace = helmValues.NamespaceOverride
 	}
 	cpCluster := oteloperator.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, oteloperator.ClusterTypeCP)
+	workloadCluster := oteloperator.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), otelOperatorNamespace, oteloperator.ClusterTypeWorkload)
+
+	// ServiceAccount on CP + token Secret on workload so otel-operator connects to CP API.
+	cpServiceAccount := &authn.ManagedServiceAccount{
+		NamespacedName: k8stypes.NamespacedName{
+			Name:      "otel-operator-server",
+			Namespace: otelOperatorNamespace,
+		},
+	}
+	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
+
+	injectedHelmValues, err := oteloperator.AddAuthToHelmValues(pc.Spec.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	if err != nil {
+		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
+	}
+	// Use a shallow copy of pc with injected values for Flux resources.
+	pcWithAuth := pc.DeepCopy()
+	pcWithAuth.Spec.HelmValues = injectedHelmValues
+
+	authz.Configure(cpCluster, cpServiceAccount)
 
 	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		oteloperator.ManagePullSecret(cpCluster, imagePullSecret, oteloperator.SecretCopyConfig{
+		oteloperator.ManagePullSecret(workloadCluster, imagePullSecret, oteloperator.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: otelOperatorNamespace,
@@ -157,14 +180,16 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	oteloperator.ManageFluxResources(oteloperator.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
 		CPNamespace:         otelOperatorNamespace,
+		WorkloadNamespace:   otelOperatorNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
-		ProviderConfig:      pc,
+		ProviderConfig:      pcWithAuth,
 		ClusterContext:      clusterCtx,
 	})
 
 	mgr := oteloperator.NewManager()
 	mgr.AddCluster(cpCluster)
+	mgr.AddCluster(workloadCluster)
 	mgr.AddCluster(platformCluster)
 	return mgr, nil
 }

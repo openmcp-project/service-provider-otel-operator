@@ -59,6 +59,7 @@ var (
 	platformScheme   = runtime.NewScheme()
 	onboardingScheme = runtime.NewScheme()
 	cpScheme         = runtime.NewScheme()
+	workloadScheme   = runtime.NewScheme()
 	setupLog         = ctrl.Log.WithName("setup")
 )
 
@@ -66,6 +67,7 @@ func init() {
 	initPlatformScheme()
 	initOnboardingScheme()
 	initCPScheme()
+	initWorkloadScheme()
 }
 
 func initPlatformScheme() {
@@ -87,6 +89,11 @@ func initOnboardingScheme() {
 func initCPScheme() {
 	utilruntime.Must(clientgoscheme.AddToScheme(cpScheme))
 	utilruntime.Must(apiextensionv1.AddToScheme(cpScheme))
+}
+
+func initWorkloadScheme() {
+	utilruntime.Must(clientgoscheme.AddToScheme(workloadScheme))
+	utilruntime.Must(apiextensionv1.AddToScheme(workloadScheme))
 }
 
 // nolint:gocyclo
@@ -274,7 +281,6 @@ func main() {
 
 	clusterAccessReconciler := libclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "oteloperator").
 		WithMCPScheme(cpScheme).
-		WithRetryInterval(10 * time.Second).
 		WithMCPPermissions(adminPermissions).
 		WithMCPRoleRefs([]common.RoleRef{
 			{
@@ -282,7 +288,15 @@ func main() {
 				Kind: "ClusterRole",
 			},
 		}).
-		SkipWorkloadCluster()
+		WithWorkloadScheme(workloadScheme).
+		WithWorkloadPermissions(adminPermissions).
+		WithWorkloadRoleRefs([]common.RoleRef{
+			{
+				Name: "cluster-admin",
+				Kind: "ClusterRole",
+			},
+		}).
+		WithRetryInterval(10 * time.Second)
 
 	spr := serviceprovider.NewAPIReconcilerBuilder[*oteloperatorv1alpha1.OtelOperator, *oteloperatorv1alpha1.ProviderConfig]().
 		EmptyObjectProvider(func() *oteloperatorv1alpha1.OtelOperator {
@@ -299,7 +313,7 @@ func main() {
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
 		}).
-		WorkloadCluster(false).
+		WorkloadCluster(true).
 		MustBuild()
 
 	if err := spr.SetupWithManager(mgr, providerName); err != nil {
