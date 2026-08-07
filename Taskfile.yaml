@@ -21,7 +21,7 @@ tasks:
       - docker tag ghcr.io/openmcp-project/images/{{.COMPONENTS}}:{{.VERSION}}-linux-{{ARCH}} ghcr.io/openmcp-project/images/{{.COMPONENTS}}:{{.VERSION}}
     vars:
       VERSION:
-        sh: cat VERSION
+        sh: hack/common/get-version.sh
       ARCH:
         sh: uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/'
 
