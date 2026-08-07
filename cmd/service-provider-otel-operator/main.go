@@ -279,7 +279,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	clusterAccessReconciler := libclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), "oteloperator").
+	clusterAccessReconciler := libclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), providerName).
 		WithMCPScheme(cpScheme).
 		WithMCPPermissions(adminPermissions).
 		WithMCPRoleRefs([]common.RoleRef{
