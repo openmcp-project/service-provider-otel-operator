@@ -98,6 +98,7 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 				Upgrade: &helmv2.Upgrade{
 					DisableSchemaValidation: true,
 				},
+				ReleaseName:      p.Obj.Name,
 				Values:           p.ProviderConfig.Spec.HelmValues,
 				TargetNamespace:  p.WorkloadNamespace,
 				StorageNamespace: p.WorkloadNamespace,

@@ -118,6 +118,9 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		t.Fatalf("HelmRelease reconcile error: %v", err)
 	}
 	hr := hrMO.GetObject().(*helmv2.HelmRelease)
+	if hr.Spec.ReleaseName != testMCPName {
+		t.Errorf("HelmRelease ReleaseName: expected %s, got %s", testMCPName, hr.Spec.ReleaseName)
+	}
 	if hr.Spec.TargetNamespace != "otel-system" {
 		t.Errorf("HelmRelease TargetNamespace: expected otel-system, got %s", hr.Spec.TargetNamespace)
 	}
