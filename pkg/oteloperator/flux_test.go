@@ -37,12 +37,13 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
-		Cluster:        cluster,
-		CPNamespace:    "opentelemetry-operator-system",
-		Obj:            obj,
-		ProviderConfig: pc,
+		Cluster:           cluster,
+		CPNamespace:       "opentelemetry-operator-system",
+		WorkloadNamespace: "opentelemetry-operator-system",
+		Obj:               obj,
+		ProviderConfig:    pc,
 		ClusterContext: clusteraccess.ClusterContext{
-			MCPAccessSecretKey: client.ObjectKey{Name: "mcp-kubeconfig", Namespace: testTenantNS},
+			WorkloadAccessSecretKey: client.ObjectKey{Name: "wl-kubeconfig", Namespace: testTenantNS},
 		},
 	})
 
@@ -88,11 +89,12 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	ManageFluxResources(ManageFluxResourcesParams{
 		Cluster:             cluster,
 		CPNamespace:         "otel-system",
+		WorkloadNamespace:   "otel-system",
 		ChartPullSecretName: "my-secret",
 		Obj:                 obj,
 		ProviderConfig:      pc,
 		ClusterContext: clusteraccess.ClusterContext{
-			MCPAccessSecretKey: client.ObjectKey{Name: "mcp-kubeconfig", Namespace: testTenantNS},
+			WorkloadAccessSecretKey: client.ObjectKey{Name: "wl-kubeconfig", Namespace: testTenantNS},
 		},
 	})
 
@@ -116,14 +118,17 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		t.Fatalf("HelmRelease reconcile error: %v", err)
 	}
 	hr := hrMO.GetObject().(*helmv2.HelmRelease)
+	if hr.Spec.ReleaseName != testMCPName {
+		t.Errorf("HelmRelease ReleaseName: expected %s, got %s", testMCPName, hr.Spec.ReleaseName)
+	}
 	if hr.Spec.TargetNamespace != "otel-system" {
 		t.Errorf("HelmRelease TargetNamespace: expected otel-system, got %s", hr.Spec.TargetNamespace)
 	}
 	if hr.Spec.StorageNamespace != "otel-system" {
 		t.Errorf("HelmRelease StorageNamespace: expected otel-system, got %s", hr.Spec.StorageNamespace)
 	}
-	if hr.Spec.KubeConfig == nil || hr.Spec.KubeConfig.SecretRef.Name != "mcp-kubeconfig" {
-		t.Errorf("HelmRelease KubeConfig: expected mcp-kubeconfig, got %v", hr.Spec.KubeConfig)
+	if hr.Spec.KubeConfig == nil || hr.Spec.KubeConfig.SecretRef.Name != "wl-kubeconfig" {
+		t.Errorf("HelmRelease KubeConfig: expected wl-kubeconfig, got %v", hr.Spec.KubeConfig)
 	}
 	if hr.Spec.ChartRef == nil || hr.Spec.ChartRef.Name != testMCPName {
 		t.Errorf("HelmRelease ChartRef: expected test-mcp, got %v", hr.Spec.ChartRef)
@@ -177,12 +182,13 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
-		Cluster:        cluster,
-		CPNamespace:    "ns",
-		Obj:            obj,
-		ProviderConfig: pc,
+		Cluster:           cluster,
+		CPNamespace:       "ns",
+		WorkloadNamespace: "ns",
+		Obj:               obj,
+		ProviderConfig:    pc,
 		ClusterContext: clusteraccess.ClusterContext{
-			MCPAccessSecretKey: client.ObjectKey{Name: "sec"},
+			WorkloadAccessSecretKey: client.ObjectKey{Name: "sec"},
 		},
 	})
 

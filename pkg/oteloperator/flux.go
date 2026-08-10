@@ -20,6 +20,7 @@ import (
 type ManageFluxResourcesParams struct {
 	Cluster             ManagedCluster
 	CPNamespace         string
+	WorkloadNamespace   string
 	ChartPullSecretName string
 	Obj                 *apiv1alpha1.OtelOperator
 	ProviderConfig      *apiv1alpha1.ProviderConfig
@@ -83,7 +84,7 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 				},
 				KubeConfig: &meta.KubeConfigReference{
 					SecretRef: &meta.SecretKeyReference{
-						Name: p.ClusterContext.MCPAccessSecretKey.Name,
+						Name: p.ClusterContext.WorkloadAccessSecretKey.Name,
 						Key:  "kubeconfig",
 					},
 				},
@@ -97,9 +98,10 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 				Upgrade: &helmv2.Upgrade{
 					DisableSchemaValidation: true,
 				},
+				ReleaseName:      p.Obj.Name,
 				Values:           p.ProviderConfig.Spec.HelmValues,
-				TargetNamespace:  p.CPNamespace,
-				StorageNamespace: p.CPNamespace,
+				TargetNamespace:  p.WorkloadNamespace,
+				StorageNamespace: p.WorkloadNamespace,
 			}
 			return nil
 		},

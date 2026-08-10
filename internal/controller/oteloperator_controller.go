@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -38,7 +39,10 @@ import (
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authz"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/instance"
 )
 
 const namespaceOtelOperator = "opentelemetry-operator-system"
@@ -53,6 +57,10 @@ type OtelOperatorReconciler struct {
 // CreateOrUpdate is called on every add or update event
 func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
+	if err := r.ensureInstanceID(ctx, obj); err != nil {
+		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
+		return ctrl.Result{}, err
+	}
 	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
@@ -129,10 +137,31 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	if helmValues.NamespaceOverride != "" {
 		otelOperatorNamespace = helmValues.NamespaceOverride
 	}
+	workloadNamespace := instance.Namespace(obj)
 	cpCluster := oteloperator.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, oteloperator.ClusterTypeCP)
+	workloadCluster := oteloperator.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), workloadNamespace, oteloperator.ClusterTypeWorkload)
+
+	// ServiceAccount on CP + token Secret on workload so otel-operator connects to CP API.
+	cpServiceAccount := &authn.ManagedServiceAccount{
+		NamespacedName: k8stypes.NamespacedName{
+			Name:      "otel-operator-server",
+			Namespace: otelOperatorNamespace,
+		},
+	}
+	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
+
+	injectedHelmValues, err := oteloperator.AddAuthToHelmValues(pc.Spec.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	if err != nil {
+		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
+	}
+	// Use a shallow copy of pc with injected values for Flux resources.
+	pcWithAuth := pc.DeepCopy()
+	pcWithAuth.Spec.HelmValues = injectedHelmValues
+
+	authz.Configure(cpCluster, cpServiceAccount)
 
 	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		oteloperator.ManagePullSecret(cpCluster, imagePullSecret, oteloperator.SecretCopyConfig{
+		oteloperator.ManagePullSecret(workloadCluster, imagePullSecret, oteloperator.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: otelOperatorNamespace,
@@ -157,14 +186,16 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	oteloperator.ManageFluxResources(oteloperator.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
 		CPNamespace:         otelOperatorNamespace,
+		WorkloadNamespace:   workloadNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
-		ProviderConfig:      pc,
+		ProviderConfig:      pcWithAuth,
 		ClusterContext:      clusterCtx,
 	})
 
 	mgr := oteloperator.NewManager()
 	mgr.AddCluster(cpCluster)
+	mgr.AddCluster(workloadCluster)
 	mgr.AddCluster(platformCluster)
 	return mgr, nil
 }
@@ -233,4 +264,14 @@ func joinStrings(ss []string) string {
 		b.WriteString(s)
 	}
 	return b.String()
+}
+
+func (r *OtelOperatorReconciler) ensureInstanceID(ctx context.Context, obj *apiv1alpha1.OtelOperator) error {
+	if instance.GetID(obj) == "" {
+		instance.SetID(obj, instance.GenerateID(obj))
+		if err := r.OnboardingCluster.Client().Update(ctx, obj); err != nil {
+			return fmt.Errorf("failed to set instance id of otel operator resource %s/%s: %w", obj.Namespace, obj.Name, err)
+		}
+	}
+	return nil
 }

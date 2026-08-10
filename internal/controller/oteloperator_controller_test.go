@@ -107,8 +107,10 @@ func TestDelete_ProceedsWhenNoCRDsInstalled(t *testing.T) {
 	}
 
 	cp := cpClientNoCRDs()
+	wl := stubCluster(t, "workload")
 	result, _ := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusteraccess.ClusterContext{
-		MCPCluster: cp,
+		MCPCluster:      cp,
+		WorkloadCluster: wl,
 	})
 
 	// Guard must not block (RequeueAfter == 0). Errors from missing helm/flux config are fine.
@@ -126,8 +128,10 @@ func TestDelete_ProceedsWhenNoOtelCRs(t *testing.T) {
 	}
 
 	cp := cpClientWith() // CRDs present, no CRs
+	wl := stubCluster(t, "workload")
 	result, _ := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusteraccess.ClusterContext{
-		MCPCluster: cp,
+		MCPCluster:      cp,
+		WorkloadCluster: wl,
 	})
 
 	assert.Equal(t, float64(0), result.RequeueAfter.Seconds(), "guard must not block when no CRs exist")

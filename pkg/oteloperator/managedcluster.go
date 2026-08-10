@@ -12,6 +12,7 @@ import (
 const (
 	ClusterTypeCP       ClusterType = "ControlPlane"
 	ClusterTypePlatform ClusterType = "PlatformCluster"
+	ClusterTypeWorkload ClusterType = "WorkloadCluster"
 )
 
 // ClusterType distinguishes between control plane and platform clusters.
@@ -59,6 +60,9 @@ func (m *managedCluster) GetConfig() *rest.Config {
 }
 
 func (m *managedCluster) GetHostAndPort() (string, string) {
+	if m.cfg == nil {
+		return "", "443"
+	}
 	input := strings.TrimPrefix(m.cfg.Host, "https://")
 	host, port, found := strings.Cut(input, ":")
 	if !found {
