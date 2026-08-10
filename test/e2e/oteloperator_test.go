@@ -21,9 +21,9 @@ import (
 	openmcpconditions "github.com/openmcp-project/openmcp-testing/pkg/conditions"
 	"github.com/openmcp-project/openmcp-testing/pkg/providers"
 	"github.com/openmcp-project/openmcp-testing/pkg/resources"
+	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/instance"
 )
-
-const targetNamespace = "opentelemetry-operator-system"
 
 // ociRepositoryName and helmReleaseName match the object name set by the controller (= OtelOperator.Name).
 const testCPName = "test-cp"
@@ -101,18 +101,33 @@ func TestServiceProvider(t *testing.T) {
 				return ctx
 			},
 		).
-		Assess("verify operator deployment exists in CP",
+		Assess("workload cluster: operator deployment exists",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
-				cpConfig, err := clusterutils.MCPConfig(ctx, c, testCPName)
+				workloadConfig, err := clusterutils.ConfigByPrefix("workload", corev1.NamespaceDefault)
 				if err != nil {
 					t.Error(err)
 					return ctx
 				}
+				onboardingConfig, err := clusterutils.OnboardingConfig()
+				if err != nil {
+					t.Error(err)
+					return ctx
+				}
+				if err := apiv1alpha1.AddToScheme(onboardingConfig.Client().Resources().GetScheme()); err != nil {
+					t.Errorf("failed to register OtelOperator scheme: %v", err)
+					return ctx
+				}
+				obj := &apiv1alpha1.OtelOperator{}
+				if err := onboardingConfig.Client().Resources().Get(ctx, testCPName, corev1.NamespaceDefault, obj); err != nil {
+					t.Errorf("failed to get OtelOperator %s/%s: %v", corev1.NamespaceDefault, testCPName, err)
+					return ctx
+				}
+				workloadNamespace := instance.Namespace(obj)
 				dep := &appsv1.DeploymentList{}
-				if err := wait.For(conditions.New(cpConfig.Client().Resources(targetNamespace)).
+				if err := wait.For(conditions.New(workloadConfig.Client().Resources(workloadNamespace)).
 					ResourceListN(dep, 1),
 					wait.WithTimeout(5*time.Minute)); err != nil {
-					t.Errorf("operator deployment not found in namespace %s: %v", targetNamespace, err)
+					t.Errorf("operator deployment not found in namespace %s: %v", workloadNamespace, err)
 				}
 				return ctx
 			},
