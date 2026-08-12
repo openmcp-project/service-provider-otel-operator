@@ -2,6 +2,7 @@ package oteloperator
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ const (
 	testMCPName  = "test-mcp"
 )
 
-func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
+func TestManageFluxResources_CreatesOneOCIRepositoryAndTwoHelmReleases(t *testing.T) {
 	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
@@ -37,37 +38,48 @@ func TestManageFluxResources_CreatesOCIRepositoryAndHelmRelease(t *testing.T) {
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
-		Cluster:           cluster,
-		CPNamespace:       "opentelemetry-operator-system",
-		WorkloadNamespace: "opentelemetry-operator-system",
-		Obj:               obj,
-		ProviderConfig:    pc,
+		Cluster:            cluster,
+		CPNamespace:        "opentelemetry-operator-system",
+		WorkloadNamespace:  "opentelemetry-operator-system",
+		Obj:                obj,
+		ProviderConfig:     pc,
+		WorkloadHelmValues: mustWorkloadHelmValues(t),
+		CRDHelmValues:      mustCRDHelmValues(t),
 		ClusterContext: clusteraccess.ClusterContext{
+			MCPAccessSecretKey:      client.ObjectKey{Name: "cp-kubeconfig", Namespace: testTenantNS},
 			WorkloadAccessSecretKey: client.ObjectKey{Name: "wl-kubeconfig", Namespace: testTenantNS},
 		},
 	})
 
-	if len(cluster.objects) != 2 {
-		t.Fatalf("expected 2 objects, got %d", len(cluster.objects))
+	if len(cluster.objects) != 3 {
+		t.Fatalf("expected 3 objects, got %d", len(cluster.objects))
 	}
 
-	ociObj := cluster.objects[0].GetObject()
-	if _, ok := ociObj.(*sourcev1.OCIRepository); !ok {
-		t.Errorf("first object should be OCIRepository, got %T", ociObj)
+	kubeStackOCIObj := cluster.objects[0].GetObject()
+	if _, ok := kubeStackOCIObj.(*sourcev1.OCIRepository); !ok {
+		t.Errorf("first object should be kube-stack OCIRepository, got %T", kubeStackOCIObj)
 	}
-	if ociObj.GetName() != testMCPName {
-		t.Errorf("OCIRepository name: expected test-mcp, got %s", ociObj.GetName())
+	if kubeStackOCIObj.GetName() != testMCPName {
+		t.Errorf("kube-stack OCIRepository name: expected test-mcp, got %s", kubeStackOCIObj.GetName())
 	}
-	if ociObj.GetNamespace() != testTenantNS {
-		t.Errorf("OCIRepository namespace: expected tenant-ns, got %s", ociObj.GetNamespace())
+	if kubeStackOCIObj.GetNamespace() != testTenantNS {
+		t.Errorf("kube-stack OCIRepository namespace: expected tenant-ns, got %s", kubeStackOCIObj.GetNamespace())
 	}
 
-	hrObj := cluster.objects[1].GetObject()
-	if _, ok := hrObj.(*helmv2.HelmRelease); !ok {
-		t.Errorf("second object should be HelmRelease, got %T", hrObj)
+	crdHRObj := cluster.objects[1].GetObject()
+	if _, ok := crdHRObj.(*helmv2.HelmRelease); !ok {
+		t.Errorf("third object should be CRD HelmRelease, got %T", crdHRObj)
 	}
-	if hrObj.GetName() != testMCPName {
-		t.Errorf("HelmRelease name: expected test-mcp, got %s", hrObj.GetName())
+	if crdHRObj.GetName() != testMCPName+crdHelmReleaseSuffix {
+		t.Errorf("CRD HelmRelease name: expected %s, got %s", testMCPName+crdHelmReleaseSuffix, crdHRObj.GetName())
+	}
+
+	workloadHRObj := cluster.objects[2].GetObject()
+	if _, ok := workloadHRObj.(*helmv2.HelmRelease); !ok {
+		t.Errorf("fourth object should be workload HelmRelease, got %T", workloadHRObj)
+	}
+	if workloadHRObj.GetName() != testMCPName+workloadHelmReleaseSuffix {
+		t.Errorf("workload HelmRelease name: expected %s, got %s", testMCPName+workloadHelmReleaseSuffix, workloadHRObj.GetName())
 	}
 }
 
@@ -77,12 +89,11 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "1.2.3"},
 	}
-	chartURL := "oci://ghcr.io/example/chart"
+	chartURL := "oci://ghcr.io/example/kube-stack-chart"
 	pc := &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{
 			ChartURL:     &chartURL,
 			PollInterval: &metav1.Duration{Duration: 2 * time.Minute},
-			HelmValues:   &apiextensionsv1.JSON{Raw: []byte(`{"key":"value"}`)},
 		},
 	}
 
@@ -93,56 +104,91 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		ChartPullSecretName: "my-secret",
 		Obj:                 obj,
 		ProviderConfig:      pc,
+		WorkloadHelmValues:  mustWorkloadHelmValues(t),
+		CRDHelmValues:       mustCRDHelmValues(t),
 		ClusterContext: clusteraccess.ClusterContext{
+			MCPAccessSecretKey:      client.ObjectKey{Name: "cp-kubeconfig", Namespace: testTenantNS},
 			WorkloadAccessSecretKey: client.ObjectKey{Name: "wl-kubeconfig", Namespace: testTenantNS},
 		},
 	})
 
 	ociMO := cluster.objects[0]
 	if err := ociMO.Reconcile(context.Background()); err != nil {
-		t.Fatalf("OCIRepository reconcile error: %v", err)
+		t.Fatalf("kube-stack OCIRepository reconcile error: %v", err)
 	}
 	ociRepo := ociMO.GetObject().(*sourcev1.OCIRepository)
 	if ociRepo.Spec.URL != chartURL {
-		t.Errorf("OCIRepository URL: expected %s, got %s", chartURL, ociRepo.Spec.URL)
+		t.Errorf("kube-stack OCIRepository URL: expected %s, got %s", chartURL, ociRepo.Spec.URL)
 	}
 	if ociRepo.Spec.Reference == nil || ociRepo.Spec.Reference.Tag != "1.2.3" {
-		t.Errorf("OCIRepository tag: expected 1.2.3, got %v", ociRepo.Spec.Reference)
+		t.Errorf("kube-stack OCIRepository tag: expected 1.2.3, got %v", ociRepo.Spec.Reference)
 	}
 	if ociRepo.Spec.SecretRef == nil || ociRepo.Spec.SecretRef.Name != "my-secret" {
-		t.Errorf("OCIRepository secret ref: expected my-secret, got %v", ociRepo.Spec.SecretRef)
+		t.Errorf("kube-stack OCIRepository secret ref: expected my-secret, got %v", ociRepo.Spec.SecretRef)
 	}
 
-	hrMO := cluster.objects[1]
-	if err := hrMO.Reconcile(context.Background()); err != nil {
-		t.Fatalf("HelmRelease reconcile error: %v", err)
+	crdHRMO := cluster.objects[1]
+	if err := crdHRMO.Reconcile(context.Background()); err != nil {
+		t.Fatalf("CRD HelmRelease reconcile error: %v", err)
 	}
-	hr := hrMO.GetObject().(*helmv2.HelmRelease)
-	if hr.Spec.ReleaseName != testMCPName {
-		t.Errorf("HelmRelease ReleaseName: expected %s, got %s", testMCPName, hr.Spec.ReleaseName)
+	crdHR := crdHRMO.GetObject().(*helmv2.HelmRelease)
+	if crdHR.Spec.ReleaseName != testMCPName+crdHelmReleaseSuffix {
+		t.Errorf("CRD HelmRelease ReleaseName: expected %s, got %s", testMCPName+crdHelmReleaseSuffix, crdHR.Spec.ReleaseName)
 	}
-	if hr.Spec.TargetNamespace != "otel-system" {
-		t.Errorf("HelmRelease TargetNamespace: expected otel-system, got %s", hr.Spec.TargetNamespace)
+	if crdHR.Spec.KubeConfig == nil || crdHR.Spec.KubeConfig.SecretRef.Name != "cp-kubeconfig" {
+		t.Errorf("CRD HelmRelease KubeConfig: expected cp-kubeconfig, got %v", crdHR.Spec.KubeConfig)
 	}
-	if hr.Spec.StorageNamespace != "otel-system" {
-		t.Errorf("HelmRelease StorageNamespace: expected otel-system, got %s", hr.Spec.StorageNamespace)
+	if crdHR.Spec.TargetNamespace != "otel-system" || crdHR.Spec.StorageNamespace != "otel-system" {
+		t.Errorf("CRD HelmRelease namespace mismatch: target=%s storage=%s", crdHR.Spec.TargetNamespace, crdHR.Spec.StorageNamespace)
 	}
-	if hr.Spec.KubeConfig == nil || hr.Spec.KubeConfig.SecretRef.Name != "wl-kubeconfig" {
-		t.Errorf("HelmRelease KubeConfig: expected wl-kubeconfig, got %v", hr.Spec.KubeConfig)
+	if crdHR.Spec.ChartRef == nil || crdHR.Spec.ChartRef.Name != testMCPName {
+		t.Errorf("CRD HelmRelease ChartRef: expected %s, got %v", testMCPName, crdHR.Spec.ChartRef)
 	}
-	if hr.Spec.ChartRef == nil || hr.Spec.ChartRef.Name != testMCPName {
-		t.Errorf("HelmRelease ChartRef: expected test-mcp, got %v", hr.Spec.ChartRef)
+	assertKubeStackCRDValues(t, crdHR.Spec.Values)
+	if crdHR.Spec.Install == nil || crdHR.Spec.Install.CRDs != helmv2.Create {
+		t.Fatalf("CRD HelmRelease install CRD policy: expected Create, got %#v", crdHR.Spec.Install)
 	}
-	if hr.Spec.Values == nil || string(hr.Spec.Values.Raw) != `{"key":"value"}` {
-		t.Errorf("HelmRelease Values: expected {\"key\":\"value\"}, got %v", hr.Spec.Values)
+	if crdHR.Spec.Upgrade == nil || crdHR.Spec.Upgrade.CRDs != helmv2.CreateReplace {
+		t.Fatalf("CRD HelmRelease upgrade CRD policy: expected CreateReplace, got %#v", crdHR.Spec.Upgrade)
+	}
+	if len(crdHR.Spec.PostRenderers) != 0 {
+		t.Fatalf("CRD HelmRelease should not use post-renderers, got %d", len(crdHR.Spec.PostRenderers))
+	}
+	if crdHR.Spec.Uninstall == nil || crdHR.Spec.Uninstall.DeletionPropagation == nil || *crdHR.Spec.Uninstall.DeletionPropagation != "orphan" {
+		t.Fatalf("CRD HelmRelease should orphan resources on uninstall, got %#v", crdHR.Spec.Uninstall)
 	}
 
-	deps := hrMO.GetDependencies()
-	if len(deps) != 1 {
-		t.Fatalf("HelmRelease should depend on 1 object, got %d", len(deps))
+	workloadHRMO := cluster.objects[2]
+	if err := workloadHRMO.Reconcile(context.Background()); err != nil {
+		t.Fatalf("workload HelmRelease reconcile error: %v", err)
 	}
-	if deps[0].GetObject().GetName() != testMCPName {
-		t.Errorf("HelmRelease dependency should be OCIRepository test-mcp")
+	workloadHR := workloadHRMO.GetObject().(*helmv2.HelmRelease)
+	if workloadHR.Spec.ReleaseName != testMCPName+workloadHelmReleaseSuffix {
+		t.Errorf("workload HelmRelease ReleaseName: expected %s, got %s", testMCPName+workloadHelmReleaseSuffix, workloadHR.Spec.ReleaseName)
+	}
+	if workloadHR.Spec.TargetNamespace != "otel-system" || workloadHR.Spec.StorageNamespace != "otel-system" {
+		t.Errorf("workload HelmRelease namespace mismatch: target=%s storage=%s", workloadHR.Spec.TargetNamespace, workloadHR.Spec.StorageNamespace)
+	}
+	if workloadHR.Spec.KubeConfig == nil || workloadHR.Spec.KubeConfig.SecretRef.Name != "wl-kubeconfig" {
+		t.Errorf("workload HelmRelease KubeConfig: expected wl-kubeconfig, got %v", workloadHR.Spec.KubeConfig)
+	}
+	if workloadHR.Spec.ChartRef == nil || workloadHR.Spec.ChartRef.Name != testMCPName {
+		t.Errorf("workload HelmRelease ChartRef: expected test-mcp, got %v", workloadHR.Spec.ChartRef)
+	}
+	if len(workloadHR.Spec.PostRenderers) != 0 {
+		t.Fatalf("workload HelmRelease should not use post-renderers, got %d", len(workloadHR.Spec.PostRenderers))
+	}
+	assertKubeStackWorkloadValues(t, workloadHR.Spec.Values)
+	if len(workloadHR.Spec.DependsOn) != 1 || workloadHR.Spec.DependsOn[0].Name != testMCPName+crdHelmReleaseSuffix {
+		t.Fatalf("workload HelmRelease should depend on CRD HelmRelease, got %#v", workloadHR.Spec.DependsOn)
+	}
+
+	deps := workloadHRMO.GetDependencies()
+	if len(deps) != 2 {
+		t.Fatalf("workload HelmRelease should depend on 2 managed objects, got %d", len(deps))
+	}
+	if deps[0].GetObject().GetName() != testMCPName || deps[1].GetObject().GetName() != testMCPName+crdHelmReleaseSuffix {
+		t.Errorf("workload HelmRelease dependencies should be kube-stack OCIRepository and CRD HelmRelease")
 	}
 }
 
@@ -175,19 +221,18 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.1.0"},
 	}
-	pc := &apiv1alpha1.ProviderConfig{
-		Spec: apiv1alpha1.ProviderConfigSpec{
-			ChartURL: new(string),
-		},
-	}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{ChartURL: new(string)}}
 
 	ManageFluxResources(ManageFluxResourcesParams{
-		Cluster:           cluster,
-		CPNamespace:       "ns",
-		WorkloadNamespace: "ns",
-		Obj:               obj,
-		ProviderConfig:    pc,
+		Cluster:            cluster,
+		CPNamespace:        "ns",
+		WorkloadNamespace:  "ns",
+		Obj:                obj,
+		ProviderConfig:     pc,
+		WorkloadHelmValues: mustWorkloadHelmValues(t),
+		CRDHelmValues:      mustCRDHelmValues(t),
 		ClusterContext: clusteraccess.ClusterContext{
+			MCPAccessSecretKey:      client.ObjectKey{Name: "cp-sec"},
 			WorkloadAccessSecretKey: client.ObjectKey{Name: "sec"},
 		},
 	})
@@ -199,6 +244,81 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 	ociRepo := ociMO.GetObject().(*sourcev1.OCIRepository)
 	if ociRepo.Spec.SecretRef != nil {
 		t.Errorf("expected no SecretRef when ChartPullSecretName is empty, got %v", ociRepo.Spec.SecretRef)
+	}
+}
+
+func mustCRDHelmValues(t *testing.T) *apiextensionsv1.JSON {
+	t.Helper()
+	values, err := CRDHelmValues(nil)
+	if err != nil {
+		t.Fatalf("CRDHelmValues failed: %v", err)
+	}
+	return values
+}
+
+func mustWorkloadHelmValues(t *testing.T) *apiextensionsv1.JSON {
+	t.Helper()
+	values, err := WorkloadHelmValues(nil)
+	if err != nil {
+		t.Fatalf("WorkloadHelmValues failed: %v", err)
+	}
+	return values
+}
+
+func assertKubeStackWorkloadValues(t *testing.T, values *apiextensionsv1.JSON) {
+	t.Helper()
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(values.Raw, &root); err != nil {
+		t.Fatalf("invalid values JSON: %v", err)
+	}
+	var crds struct {
+		InstallOtel       bool `json:"installOtel"`
+		InstallPrometheus bool `json:"installPrometheus"`
+	}
+	if err := json.Unmarshal(root["crds"], &crds); err != nil {
+		t.Fatalf("invalid crds JSON: %v", err)
+	}
+	if crds.InstallOtel || crds.InstallPrometheus {
+		t.Fatalf("unexpected kube-stack workload crds values: %#v", crds)
+	}
+	var op struct {
+		Enabled bool `json:"enabled"`
+		CRDs    struct {
+			Create bool `json:"create"`
+		} `json:"crds"`
+	}
+	if err := json.Unmarshal(root["opentelemetry-operator"], &op); err != nil {
+		t.Fatalf("invalid opentelemetry-operator JSON: %v", err)
+	}
+	if !op.Enabled || op.CRDs.Create {
+		t.Fatalf("unexpected opentelemetry-operator workload values: %#v", op)
+	}
+}
+
+func assertKubeStackCRDValues(t *testing.T, values *apiextensionsv1.JSON) {
+	t.Helper()
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(values.Raw, &root); err != nil {
+		t.Fatalf("invalid values JSON: %v", err)
+	}
+	var op struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(root["opentelemetry-operator"], &op); err != nil {
+		t.Fatalf("invalid opentelemetry-operator JSON: %v", err)
+	}
+	if op.Enabled {
+		t.Fatal("expected opentelemetry-operator.enabled=false")
+	}
+	var crds struct {
+		InstallOtel       bool `json:"installOtel"`
+		InstallPrometheus bool `json:"installPrometheus"`
+	}
+	if err := json.Unmarshal(root["crds"], &crds); err != nil {
+		t.Fatalf("invalid crds JSON: %v", err)
+	}
+	if !crds.InstallOtel || crds.InstallPrometheus {
+		t.Fatalf("unexpected kube-stack crds values: %#v", crds)
 	}
 }
 

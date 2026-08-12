@@ -6,7 +6,7 @@ An [OpenMCP](https://github.com/openmcp-project) Service Provider that automates
 
 ## Overview
 
-This service provider installs the OpenTelemetry Operator into each CP that requests one. The operator is deployed using the official [opentelemetry-operator Helm chart](https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-operator). Once the operator is running, users can create `OpenTelemetryCollector` custom resources in the CP to configure and manage collector instances.
+This service provider installs the OpenTelemetry Operator for each CP that requests one. It uses the official [opentelemetry-kube-stack Helm chart](https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-kube-stack) for both releases: one CRD-only release targets the CP, and one operator-only release targets the workload cluster. Once the operator is running, users can create `OpenTelemetryCollector` custom resources in the CP to configure and manage collector instances.
 
 ### Architecture
 
@@ -15,10 +15,10 @@ Platform Cluster                  CP (per tenant)
 ┌─────────────────────┐           ┌──────────────────────────────────────────┐
 │  ProviderConfig     │           │  namespace: opentelemetry-operator-system│
 │  (cluster-scoped)   │           │                                          │
-│  - chartVersion     │           │  Helm Release: opentelemetry-operator    │ ← SP creates
-│  - chartRepoURL     │           │    → Deployment (operator)               │
-│  - helmValues       │           │    → CRDs (OpenTelemetryCollector, etc.) │
-│  - imagePullSecrets │           │    → RBAC, Webhooks, Services            │
+│  - chartURL         │           │  HelmRelease: <name>-crds                │ ← kube-stack CRDs
+│  - pollInterval     │           │    → CRDs (OpenTelemetryCollector, etc.) │
+│  - helmValues       │           │                                          │
+│  - imagePullSecrets │           │  Workload HelmRelease: <name>-workload   │ ← kube-stack operator
 └─────────────────────┘           │                                          │
                                   │  OpenTelemetryCollector CRs              │ ← user creates
 Onboarding Cluster                └──────────────────────────────────────────┘
@@ -31,13 +31,14 @@ Onboarding Cluster                └──────────────�
 ### Reconciliation Flow
 
 1. Set status to `Progressing`
-2. Ensure the target namespace exists in the CP
-3. Sync image pull secrets from the platform cluster to the CP (if configured)
-4. Merge Helm values (ProviderConfig defaults + per-CP overrides)
-5. Install or upgrade the `opentelemetry-operator` Helm release
-6. Set status to `Ready`
+2. Prepare CP ServiceAccount auth for the workload operator
+3. Sync image pull secrets from the platform cluster to the workload cluster (if configured)
+4. Create one `opentelemetry-kube-stack` OCIRepository
+5. Install or upgrade the CP CRD-only HelmRelease (`<name>-crds`)
+6. Install or upgrade the workload operator-only HelmRelease (`<name>-workload`)
+7. Set status to `Ready`
 
-On **deletion**, the service provider uninstalls the Helm release, which removes all operator-managed resources from the CP.
+On **deletion**, the service provider uninstalls the managed Helm releases. The CRD release uses orphan deletion propagation so existing CP custom resources are not garbage-collected with the HelmRelease.
 
 ### cert-manager
 
@@ -48,11 +49,12 @@ If cert-manager is available in your CPs, you can enable it via the ProviderConf
 ```yaml
 spec:
   helmValues:
-    admissionWebhooks:
-      certManager:
-        enabled: true
-      autoGenerateCert:
-        enabled: false
+    opentelemetry-operator:
+      admissionWebhooks:
+        certManager:
+          enabled: true
+        autoGenerateCert:
+          enabled: false
 ```
 
 ## API
@@ -67,13 +69,8 @@ kind: OtelOperator
 metadata:
   name: my-cp
 spec:
-  # All fields are optional — defaults from ProviderConfig are used if omitted
-  chartVersion: "0.82.0"
-  namespace: "opentelemetry-operator-system"
-  helmValues:
-    manager:
-      collectorImage:
-        repository: "otel/opentelemetry-collector-contrib"
+  # opentelemetry-kube-stack chart version
+  version: "0.20.1"
 ```
 
 ### ProviderConfig (platform cluster)
@@ -87,17 +84,15 @@ metadata:
   name: oteloperator
 spec:
   pollInterval: 1m
-  chartVersion: "0.82.0"
-  chartRepoURL: "https://open-telemetry.github.io/opentelemetry-helm-charts"
-  defaultNamespace: "opentelemetry-operator-system"
-  imagePullSecrets:
-    - name: my-registry-secret
+  chartURL: "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
+  chartPullSecret: my-registry-secret
   helmValues:
-    admissionWebhooks:
-      certManager:
-        enabled: false
-      autoGenerateCert:
-        enabled: true
+    opentelemetry-operator:
+      admissionWebhooks:
+        certManager:
+          enabled: false
+        autoGenerateCert:
+          enabled: true
 ```
 
 ## Project Structure

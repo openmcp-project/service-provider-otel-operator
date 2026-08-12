@@ -4,6 +4,7 @@ go 1.26.5
 
 require (
 	github.com/fluxcd/helm-controller/api v1.6.3
+	github.com/fluxcd/pkg/apis/kustomize v1.20.0
 	github.com/fluxcd/pkg/apis/meta v1.31.0
 	github.com/fluxcd/pkg/runtime v0.111.0
 	github.com/fluxcd/source-controller/api v1.9.4
@@ -29,7 +30,6 @@ require (
 	github.com/fluxcd/flux2/v2 v2.9.4 // indirect
 	github.com/fluxcd/kustomize-controller/api v1.9.4 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.10.0 // indirect
-	github.com/fluxcd/pkg/apis/kustomize v1.20.0 // indirect
 	github.com/fluxcd/pkg/kustomize v1.39.0 // indirect
 	github.com/fluxcd/pkg/tar v1.2.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect

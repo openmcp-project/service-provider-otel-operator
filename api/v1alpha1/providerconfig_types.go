@@ -25,9 +25,10 @@ import (
 
 // ProviderConfigSpec defines the desired state of ProviderConfig
 type ProviderConfigSpec struct {
-	// ChartURL is a reference to an OCI artifact repository that hosts the opentelemetry-operator Helm chart.
+	// ChartURL is a reference to an OCI artifact repository that hosts the opentelemetry-kube-stack Helm chart.
+	// The provider uses this chart for both the CP CRD release and workload operator release.
 	// +optional
-	// +kubebuilder:default="oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-operator"
+	// +kubebuilder:default="oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
 	ChartURL *string `json:"chartURL,omitempty"`
 
 	// ChartPullSecret is a reference to the secret containing the credentials to pull the Helm chart.
@@ -91,4 +92,12 @@ func (o *ProviderConfig) PollInterval() time.Duration {
 		return time.Minute
 	}
 	return o.Spec.PollInterval.Duration
+}
+
+// ChartURL returns the opentelemetry-kube-stack chart URL used for both CRD and workload installation.
+func (o *ProviderConfig) ChartURL() string {
+	if o.Spec.ChartURL == nil || *o.Spec.ChartURL == "" {
+		return "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
+	}
+	return *o.Spec.ChartURL
 }

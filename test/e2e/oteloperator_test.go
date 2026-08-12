@@ -25,7 +25,7 @@ import (
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/instance"
 )
 
-// ociRepositoryName and helmReleaseName match the object name set by the controller (= OtelOperator.Name).
+// ociRepositoryName matches the object name set by the controller (= OtelOperator.Name).
 const testCPName = "test-cp"
 
 func TestServiceProvider(t *testing.T) {
@@ -70,7 +70,7 @@ func TestServiceProvider(t *testing.T) {
 				return ctx
 			},
 		).
-		Assess("platform cluster: OCIRepository and HelmRelease are ready",
+		Assess("platform cluster: OCIRepository and HelmReleases are ready",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 				platformConfig, err := clusterutils.ConfigByPrefix("platform", corev1.NamespaceDefault)
 				if err != nil {
@@ -91,12 +91,14 @@ func TestServiceProvider(t *testing.T) {
 					t.Errorf("OCIRepository not ready: %v", err)
 				}
 
-				helmRelease := &helmv2.HelmRelease{}
-				helmRelease.SetName(testCPName)
-				helmRelease.SetNamespace(tenantNamespace)
-				if err := wait.For(openmcpconditions.Match(helmRelease, platformConfig, "Ready", corev1.ConditionTrue),
-					wait.WithTimeout(5*time.Minute)); err != nil {
-					t.Errorf("HelmRelease not ready: %v", err)
+				for _, name := range []string{testCPName + "-crds", testCPName + "-workload"} {
+					helmRelease := &helmv2.HelmRelease{}
+					helmRelease.SetName(name)
+					helmRelease.SetNamespace(tenantNamespace)
+					if err := wait.For(openmcpconditions.Match(helmRelease, platformConfig, "Ready", corev1.ConditionTrue),
+						wait.WithTimeout(5*time.Minute)); err != nil {
+						t.Errorf("HelmRelease %s not ready: %v", name, err)
+					}
 				}
 				return ctx
 			},
