@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	testTenantNS    = "tenant-ns"
-	testMCPName     = "test-mcp"
-	testOtelNS      = "otel-system"
+	testTenantNS = "tenant-ns"
+	testMCPName  = "test-mcp"
+	testOtelNS   = "otel-system"
 )
 
 func TestManageFluxResources_CreatesOneOCIRepositoryAndTwoHelmReleases(t *testing.T) {
