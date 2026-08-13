@@ -81,7 +81,7 @@ Cluster-scoped resource that provides default values for all CPs.
 apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
 kind: ProviderConfig
 metadata:
-  name: oteloperator
+  name: otel-operator
 spec:
   pollInterval: 1m
   chartURL: "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
