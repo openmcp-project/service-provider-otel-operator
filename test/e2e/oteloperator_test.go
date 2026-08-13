@@ -19,13 +19,12 @@ import (
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 	"github.com/openmcp-project/openmcp-testing/pkg/clusterutils"
 	openmcpconditions "github.com/openmcp-project/openmcp-testing/pkg/conditions"
-	"github.com/openmcp-project/openmcp-testing/pkg/providers"
 	"github.com/openmcp-project/openmcp-testing/pkg/resources"
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/instance"
 )
 
-// ociRepositoryName matches the object name set by the controller (= OtelOperator.Name).
+// testCPName is the name of the OtelOperator and ControlPlane objects used in tests.
 const testCPName = "test-cp"
 
 func TestServiceProvider(t *testing.T) {
@@ -37,7 +36,6 @@ func TestServiceProvider(t *testing.T) {
 			}
 			return ctx
 		}).
-		Setup(providers.CreateMCP(testCPName)).
 		Assess("create OtelOperator and verify Ready",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
 				onboardingConfig, err := clusterutils.OnboardingConfig()
@@ -60,8 +58,13 @@ func TestServiceProvider(t *testing.T) {
 					t.Errorf("failed to create onboarding cluster objects: %v", err)
 					return ctx
 				}
-				for _, obj := range objList.Items {
-					if err := wait.For(openmcpconditions.Match(&obj, onboardingConfig, "Ready", corev1.ConditionTrue),
+				for i := range objList.Items {
+					obj := &objList.Items[i]
+					conditionType := "Ready"
+					if obj.GetKind() == "ControlPlane" {
+						conditionType = "AllAccessReady"
+					}
+					if err := wait.For(openmcpconditions.Match(obj, onboardingConfig, conditionType, corev1.ConditionTrue),
 						wait.WithTimeout(10*time.Minute)); err != nil {
 						t.Error(err)
 					}
@@ -162,7 +165,6 @@ func TestServiceProvider(t *testing.T) {
 				_ = onboardingConfig.Client().Resources().Delete(ctx, &obj)
 			}
 			return ctx
-		}).
-		Teardown(providers.DeleteMCP(testCPName, wait.WithTimeout(5*time.Minute)))
+		})
 	testenv.Test(t, basicProviderTest.Feature())
 }
