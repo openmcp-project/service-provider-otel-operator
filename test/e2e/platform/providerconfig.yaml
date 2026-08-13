@@ -4,13 +4,11 @@ metadata:
   name: oteloperator
 spec:
   pollInterval: 1m
-  chartURL: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-operator
+  chartURL: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack
   helmValues:
-    admissionWebhooks:
-      certManager:
-        enabled: false
-      autoGenerateCert:
-        enabled: true
-    manager:
-      collectorImage:
-        repository: "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s"
+    opentelemetry-operator:
+      admissionWebhooks:
+        certManager:
+          enabled: false
+        autoGenerateCert:
+          enabled: true

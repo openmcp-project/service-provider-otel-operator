@@ -150,13 +150,18 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	}
 	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
 
-	injectedHelmValues, err := oteloperator.AddAuthToHelmValues(pc.Spec.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	workloadHelmValues, err := oteloperator.AddAuthToHelmValues(pc.Spec.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
 	if err != nil {
 		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
 	}
-	// Use a shallow copy of pc with injected values for Flux resources.
-	pcWithAuth := pc.DeepCopy()
-	pcWithAuth.Spec.HelmValues = injectedHelmValues
+	workloadHelmValues, err = oteloperator.WorkloadHelmValues(workloadHelmValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set workload helm values: %w", err)
+	}
+	crdHelmValues, err := oteloperator.CRDHelmValues(pc.Spec.HelmValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set CRD helm values: %w", err)
+	}
 
 	authz.Configure(cpCluster, cpServiceAccount)
 
@@ -189,8 +194,11 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		WorkloadNamespace:   workloadNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
-		ProviderConfig:      pcWithAuth,
+		ProviderConfig:      pc,
+		WorkloadHelmValues:  workloadHelmValues,
+		CRDHelmValues:       crdHelmValues,
 		ClusterContext:      clusterCtx,
+		SASecretName:        cpServiceAccount.KubeAPIAccess(),
 	})
 
 	mgr := oteloperator.NewManager()

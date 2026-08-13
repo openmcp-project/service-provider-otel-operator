@@ -49,7 +49,7 @@ spec:
             description: spec defines the desired state of OtelOperator
             properties:
               version:
-                description: Version is the opentelemetry-operator Helm chart version
+                description: Version is the opentelemetry-kube-stack Helm chart version
                   to install.
                 type: string
             required:

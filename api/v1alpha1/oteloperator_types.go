@@ -43,7 +43,7 @@ const (
 
 // OtelOperatorSpec defines the desired state of OtelOperator
 type OtelOperatorSpec struct {
-	// Version is the opentelemetry-operator Helm chart version to install.
+	// Version is the opentelemetry-kube-stack Helm chart version to install.
 	Version string `json:"version"`
 }
 
