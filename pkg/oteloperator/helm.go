@@ -36,6 +36,8 @@ func ExtractHelmValues(values *apiextensionsv1.JSON) (*HelmValues, error) {
 // WorkloadHelmValues sets helm values required for the workload-cluster Helm release.
 // The OpenTelemetry CRDs are installed by the CP Helm release, so the workload release
 // must render only the operator/runtime objects from the opentelemetry-kube-stack chart.
+// automountServiceAccountToken is disabled so the chart creates an explicit "access-token"
+// projected volume that the post-renderer can replace with the CP credential secret.
 func WorkloadHelmValues(values *apiextensionsv1.JSON) (*apiextensionsv1.JSON, error) {
 	root, err := unmarshalRoot(values)
 	if err != nil {
@@ -52,6 +54,10 @@ func WorkloadHelmValues(values *apiextensionsv1.JSON) (*apiextensionsv1.JSON, er
 	}
 	setRawValue(opValues, helmKeyEnabled, true)
 	setRawValue(opValues, "crds", map[string]any{"create": false})
+	// Disable automounting of the workload-cluster SA token. The chart then creates
+	// an explicit "access-token" projected volume which the Flux post-renderer
+	// replaces with the CP credential secret.
+	setRawValue(opValues, "automountServiceAccountToken", false)
 	opValuesRaw, err := json.Marshal(opValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal opentelemetry-operator: %w", err)
@@ -75,38 +81,18 @@ func CRDHelmValues(_ *apiextensionsv1.JSON) (*apiextensionsv1.JSON, error) {
 	return marshalRoot(root, "CRD helm values")
 }
 
-// AddAuthToHelmValues injects the CP cluster ServiceAccount token secret as a volume and
-// overrides KUBERNETES_SERVICE_HOST/PORT so the otel-operator running on the workload cluster
-// connects to the CP cluster API instead of the local in-cluster API.
+// AddAuthToHelmValues injects KUBERNETES_SERVICE_HOST/PORT env vars into the
+// opentelemetry-operator manager so it connects to the CP cluster API.
+// The SA token and CA cert are supplied by the post-renderer-patched volume mount
+// (see cpAccessPostRenderers in flux.go), so no volume configuration is needed here.
 // nolint:gocyclo
-func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, error) {
-	authVolume := corev1.Volume{
-		Name: "kube-api-access",
-		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{SecretName: saSecretName},
-		},
-	}
-	authVolumeMount := corev1.VolumeMount{
-		Name:      "kube-api-access",
-		ReadOnly:  true,
-		MountPath: "/var/run/secrets/kubernetes.io/serviceaccount",
-	}
+func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster, _ string) (*apiextensionsv1.JSON, error) {
 	remoteHost, remotePort := cpCluster.GetHostAndPort()
 
 	root, err := unmarshalRoot(values)
 	if err != nil {
 		return nil, err
 	}
-
-	var extraVolumes []corev1.Volume
-	if err := unmarshalIfPresent(root, "extraVolumes", &extraVolumes); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal extraVolumes: %w", err)
-	}
-	extraVolumesRaw, err := json.Marshal(removeConflictingVolumesAndAppend(extraVolumes, authVolume))
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal extraVolumes: %w", err)
-	}
-	root["extraVolumes"] = extraVolumesRaw
 
 	var opValues map[string]json.RawMessage
 	if err := unmarshalIfPresent(root, "opentelemetry-operator", &opValues); err != nil {
@@ -115,7 +101,7 @@ func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster,
 	if opValues == nil {
 		opValues = make(map[string]json.RawMessage)
 	}
-	if err := injectAuthIntoManager(opValues, authVolumeMount, remoteHost, remotePort); err != nil {
+	if err := injectAuthIntoManager(opValues, remoteHost, remotePort); err != nil {
 		return nil, err
 	}
 	opValuesRaw, err := json.Marshal(opValues)
@@ -131,7 +117,7 @@ func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster,
 	return &apiextensionsv1.JSON{Raw: out}, nil
 }
 
-func injectAuthIntoManager(root map[string]json.RawMessage, mount corev1.VolumeMount, host, port string) error {
+func injectAuthIntoManager(root map[string]json.RawMessage, host, port string) error {
 	hostEnvVar := corev1.EnvVar{Name: "KUBERNETES_SERVICE_HOST", Value: host}
 	portEnvVar := corev1.EnvVar{Name: "KUBERNETES_SERVICE_PORT", Value: port}
 
@@ -142,23 +128,14 @@ func injectAuthIntoManager(root map[string]json.RawMessage, mount corev1.VolumeM
 	if managerValues == nil {
 		managerValues = make(map[string]json.RawMessage)
 	}
-	var mounts []corev1.VolumeMount
 	var envs []corev1.EnvVar
-	if err := unmarshalIfPresent(managerValues, "extraVolumeMounts", &mounts); err != nil {
-		return fmt.Errorf("failed to unmarshal manager.extraVolumeMounts: %w", err)
-	}
 	if err := unmarshalIfPresent(managerValues, "extraEnvs", &envs); err != nil {
 		return fmt.Errorf("failed to unmarshal manager.extraEnvs: %w", err)
-	}
-	mountsRaw, err := json.Marshal(removeConflictingVolumeMountsAndAppend(mounts, mount))
-	if err != nil {
-		return fmt.Errorf("failed to marshal manager.extraVolumeMounts: %w", err)
 	}
 	envsRaw, err := json.Marshal(removeConflictingEnvVarsAndAppend(removeConflictingEnvVarsAndAppend(envs, hostEnvVar), portEnvVar))
 	if err != nil {
 		return fmt.Errorf("failed to marshal manager.extraEnvs: %w", err)
 	}
-	managerValues["extraVolumeMounts"] = mountsRaw
 	managerValues["extraEnvs"] = envsRaw
 	managerValuesRaw, err := json.Marshal(managerValues)
 	if err != nil {
@@ -217,26 +194,6 @@ func marshalRoot(root map[string]json.RawMessage, context string) (*apiextension
 		return nil, fmt.Errorf("failed to marshal %s: %w", context, err)
 	}
 	return &apiextensionsv1.JSON{Raw: out}, nil
-}
-
-func removeConflictingVolumesAndAppend(volumes []corev1.Volume, newVolume corev1.Volume) []corev1.Volume {
-	updated := []corev1.Volume{}
-	for _, v := range volumes {
-		if v.Name != newVolume.Name {
-			updated = append(updated, v)
-		}
-	}
-	return append(updated, newVolume)
-}
-
-func removeConflictingVolumeMountsAndAppend(mounts []corev1.VolumeMount, newMount corev1.VolumeMount) []corev1.VolumeMount {
-	updated := []corev1.VolumeMount{}
-	for _, m := range mounts {
-		if m.MountPath != newMount.MountPath && m.Name != newMount.Name {
-			updated = append(updated, m)
-		}
-	}
-	return append(updated, newMount)
 }
 
 func removeConflictingEnvVarsAndAppend(envVars []corev1.EnvVar, newEnvVar corev1.EnvVar) []corev1.EnvVar {

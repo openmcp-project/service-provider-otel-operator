@@ -3,6 +3,7 @@ package oteloperator
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func TestManageFluxResources_CreatesOneOCIRepositoryAndTwoHelmReleases(t *testin
 	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
-		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.82.0"},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.20.1"},
 	}
 	pc := &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{
@@ -255,6 +256,59 @@ func mustCRDHelmValues(t *testing.T) *apiextensionsv1.JSON {
 		t.Fatalf("CRDHelmValues failed: %v", err)
 	}
 	return values
+}
+
+func TestManageFluxResources_WorkloadHelmReleaseHasCPAccessPostRenderer(t *testing.T) {
+	const saSecret = "kube-api-access-otel-operator-server"
+	cluster := &fakeManagedCluster{ns: testTenantNS}
+	obj := &apiv1alpha1.OtelOperator{
+		ObjectMeta: metav1.ObjectMeta{Name: testMCPName},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.20.0"},
+	}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{ChartURL: new(string)}}
+
+	ManageFluxResources(ManageFluxResourcesParams{
+		Cluster:            cluster,
+		CPNamespace:        "ns",
+		WorkloadNamespace:  "ns",
+		Obj:                obj,
+		ProviderConfig:     pc,
+		WorkloadHelmValues: mustWorkloadHelmValues(t),
+		CRDHelmValues:      mustCRDHelmValues(t),
+		SASecretName:       saSecret,
+		ClusterContext: clusteraccess.ClusterContext{
+			MCPAccessSecretKey:      client.ObjectKey{Name: "cp-sec"},
+			WorkloadAccessSecretKey: client.ObjectKey{Name: "sec"},
+		},
+	})
+
+	workloadHRMO := cluster.objects[2]
+	if err := workloadHRMO.Reconcile(context.Background()); err != nil {
+		t.Fatalf("reconcile error: %v", err)
+	}
+	workloadHR := workloadHRMO.GetObject().(*helmv2.HelmRelease)
+	if len(workloadHR.Spec.PostRenderers) != 1 {
+		t.Fatalf("expected 1 post-renderer, got %d", len(workloadHR.Spec.PostRenderers))
+	}
+	kz := workloadHR.Spec.PostRenderers[0].Kustomize
+	if kz == nil || len(kz.Patches) != 1 {
+		t.Fatalf("expected 1 kustomize patch, got %v", kz)
+	}
+	if kz.Patches[0].Target == nil || kz.Patches[0].Target.Kind != "Deployment" {
+		t.Fatalf("expected patch target kind Deployment, got %v", kz.Patches[0].Target)
+	}
+	if !strings.Contains(kz.Patches[0].Patch, saSecret) {
+		t.Errorf("post-renderer patch should reference secret %q, patch: %s", saSecret, kz.Patches[0].Patch)
+	}
+	// CRD HelmRelease must NOT have post-renderers
+	crdHRMO := cluster.objects[1]
+	if err := crdHRMO.Reconcile(context.Background()); err != nil {
+		t.Fatalf("CRD reconcile error: %v", err)
+	}
+	crdHR := crdHRMO.GetObject().(*helmv2.HelmRelease)
+	if len(crdHR.Spec.PostRenderers) != 0 {
+		t.Fatalf("CRD HelmRelease must not have post-renderers, got %d", len(crdHR.Spec.PostRenderers))
+	}
 }
 
 func mustWorkloadHelmValues(t *testing.T) *apiextensionsv1.JSON {

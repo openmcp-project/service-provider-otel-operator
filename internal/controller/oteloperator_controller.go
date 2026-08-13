@@ -198,6 +198,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		WorkloadHelmValues:  workloadHelmValues,
 		CRDHelmValues:       crdHelmValues,
 		ClusterContext:      clusterCtx,
+		SASecretName:        cpServiceAccount.KubeAPIAccess(),
 	})
 
 	mgr := oteloperator.NewManager()

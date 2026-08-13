@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
+	"github.com/fluxcd/pkg/apis/kustomize"
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -28,6 +29,9 @@ type ManageFluxResourcesParams struct {
 	WorkloadHelmValues  *apiextensionsv1.JSON
 	CRDHelmValues       *apiextensionsv1.JSON
 	ClusterContext      clusteraccess.ClusterContext
+	// SASecretName is the name of the secret on the workload cluster that holds the
+	// CP cluster service-account token and CA certificate for the otel-operator.
+	SASecretName string
 }
 
 const (
@@ -92,6 +96,9 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 			release.Spec.ReleaseName = helmReleaseName(p.Obj.Name, workloadHelmReleaseSuffix)
 			release.Spec.DependsOn = []helmv2.DependencyReference{
 				{Name: helmReleaseName(p.Obj.Name, crdHelmReleaseSuffix)},
+			}
+			if p.SASecretName != "" {
+				release.Spec.PostRenderers = cpAccessPostRenderers(p.SASecretName)
 			}
 			return nil
 		},
@@ -190,4 +197,52 @@ func fluxStatusMessage(fluxObject conditions.Getter, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// cpAccessPostRenderers returns a Flux HelmRelease post-renderer that patches the
+// opentelemetry-operator Deployment to replace the chart-created "access-token"
+// projected volume with the CP cluster credential secret.
+//
+// Background: the opentelemetry-kube-stack chart (and its opentelemetry-operator
+// subchart) do not expose extraVolumes / extraVolumeMounts in their values. When
+// automountServiceAccountToken is set to false the chart creates an explicit
+// projected volume named "access-token" mounted at
+// /var/run/secrets/kubernetes.io/serviceaccount. We replace that volume source
+// with the secret that holds the CP cluster SA token and CA cert, so that the
+// operator connects to the CP cluster API instead of the local workload cluster.
+func cpAccessPostRenderers(saSecretName string) []helmv2.PostRenderer {
+	// The patch must be a valid strategic-merge patch document (apiVersion+kind+metadata.name).
+	// The kustomize resource factory requires a non-empty metadata.name to parse the patch;
+	// when Target is also set, kustomize applies the patch to all matched resources regardless
+	// of the name in the patch document, so we use a dummy name here.
+	// The volume name "access-token" is fixed by the chart when automountServiceAccountToken=false;
+	// strategic merge on the volumes list uses "name" as the merge key and replaces the
+	// projected source with our secret.
+	patch := fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dummy
+spec:
+  template:
+    spec:
+      volumes:
+        - name: access-token
+          projected: null
+          secret:
+            secretName: %s
+`, saSecretName)
+	return []helmv2.PostRenderer{
+		{
+			Kustomize: &helmv2.Kustomize{
+				Patches: []kustomize.Patch{
+					{
+						Patch: patch,
+						Target: &kustomize.Selector{
+							Kind: "Deployment",
+						},
+					},
+				},
+			},
+		},
+	}
 }

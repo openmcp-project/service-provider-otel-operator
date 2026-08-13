@@ -119,6 +119,13 @@ func TestWorkloadHelmValues_ConfiguresKubeStackOperatorOnlyRelease(t *testing.T)
 	if _, ok := opValues["manager"]; !ok {
 		t.Fatal("expected opentelemetry-operator.manager values to be preserved")
 	}
+	var automount bool
+	if err := json.Unmarshal(opValues["automountServiceAccountToken"], &automount); err != nil {
+		t.Fatalf("invalid automountServiceAccountToken JSON: %v", err)
+	}
+	if automount {
+		t.Fatal("expected opentelemetry-operator.automountServiceAccountToken=false")
+	}
 }
 
 func TestCRDHelmValues_ConfiguresKubeStackCRDOnlyRelease(t *testing.T) {
