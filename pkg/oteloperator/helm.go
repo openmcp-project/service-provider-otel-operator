@@ -8,6 +8,8 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
+const helmKeyEnabled = "enabled"
+
 // HelmValues defines the helm values that are explicitly processed during reconciliation.
 type HelmValues struct {
 	NamespaceOverride string `json:"namespaceOverride,omitempty"`
@@ -48,7 +50,7 @@ func WorkloadHelmValues(values *apiextensionsv1.JSON) (*apiextensionsv1.JSON, er
 	if err := unmarshalIfPresent(root, "opentelemetry-operator", &opValues); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal opentelemetry-operator: %w", err)
 	}
-	setRawValue(opValues, "enabled", true)
+	setRawValue(opValues, helmKeyEnabled, true)
 	setRawValue(opValues, "crds", map[string]any{"create": false})
 	opValuesRaw, err := json.Marshal(opValues)
 	if err != nil {
@@ -68,7 +70,7 @@ func CRDHelmValues(_ *apiextensionsv1.JSON) (*apiextensionsv1.JSON, error) {
 		"installPrometheus": false,
 	})
 	setRawValue(root, "opentelemetry-operator", map[string]any{
-		"enabled": false,
+		helmKeyEnabled: false,
 	})
 	return marshalRoot(root, "CRD helm values")
 }
@@ -192,13 +194,13 @@ func unmarshalIfPresent(obj map[string]json.RawMessage, key string, out any) err
 
 func setKubeStackDisabledDefaults(root map[string]json.RawMessage) {
 	for key, value := range map[string]any{
-		"cleanupJob":       map[string]any{"enabled": false},
-		"clusterRole":      map[string]any{"enabled": false},
-		"defaultCRConfig":  map[string]any{"enabled": false},
-		"instrumentation":  map[string]any{"enabled": false},
-		"kubeStateMetrics": map[string]any{"enabled": false},
-		"nodeExporter":     map[string]any{"enabled": false},
-		"collectors":       map[string]any{"daemon": map[string]any{"enabled": false}},
+		"cleanupJob":       map[string]any{helmKeyEnabled: false},
+		"clusterRole":      map[string]any{helmKeyEnabled: false},
+		"defaultCRConfig":  map[string]any{helmKeyEnabled: false},
+		"instrumentation":  map[string]any{helmKeyEnabled: false},
+		"kubeStateMetrics": map[string]any{helmKeyEnabled: false},
+		"nodeExporter":     map[string]any{helmKeyEnabled: false},
+		"collectors":       map[string]any{"daemon": map[string]any{helmKeyEnabled: false}},
 	} {
 		setRawValue(root, key, value)
 	}

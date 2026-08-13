@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	testTenantNS = "tenant-ns"
-	testMCPName  = "test-mcp"
+	testTenantNS    = "tenant-ns"
+	testMCPName     = "test-mcp"
+	testOtelNS      = "otel-system"
 )
 
 func TestManageFluxResources_CreatesOneOCIRepositoryAndTwoHelmReleases(t *testing.T) {
@@ -99,8 +100,8 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 
 	ManageFluxResources(ManageFluxResourcesParams{
 		Cluster:             cluster,
-		CPNamespace:         "otel-system",
-		WorkloadNamespace:   "otel-system",
+		CPNamespace:         testOtelNS,
+		WorkloadNamespace:   testOtelNS,
 		ChartPullSecretName: "my-secret",
 		Obj:                 obj,
 		ProviderConfig:      pc,
@@ -138,7 +139,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	if crdHR.Spec.KubeConfig == nil || crdHR.Spec.KubeConfig.SecretRef.Name != "cp-kubeconfig" {
 		t.Errorf("CRD HelmRelease KubeConfig: expected cp-kubeconfig, got %v", crdHR.Spec.KubeConfig)
 	}
-	if crdHR.Spec.TargetNamespace != "otel-system" || crdHR.Spec.StorageNamespace != "otel-system" {
+	if crdHR.Spec.TargetNamespace != testOtelNS || crdHR.Spec.StorageNamespace != testOtelNS {
 		t.Errorf("CRD HelmRelease namespace mismatch: target=%s storage=%s", crdHR.Spec.TargetNamespace, crdHR.Spec.StorageNamespace)
 	}
 	if crdHR.Spec.ChartRef == nil || crdHR.Spec.ChartRef.Name != testMCPName {
@@ -166,7 +167,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	if workloadHR.Spec.ReleaseName != testMCPName+workloadHelmReleaseSuffix {
 		t.Errorf("workload HelmRelease ReleaseName: expected %s, got %s", testMCPName+workloadHelmReleaseSuffix, workloadHR.Spec.ReleaseName)
 	}
-	if workloadHR.Spec.TargetNamespace != "otel-system" || workloadHR.Spec.StorageNamespace != "otel-system" {
+	if workloadHR.Spec.TargetNamespace != testOtelNS || workloadHR.Spec.StorageNamespace != testOtelNS {
 		t.Errorf("workload HelmRelease namespace mismatch: target=%s storage=%s", workloadHR.Spec.TargetNamespace, workloadHR.Spec.StorageNamespace)
 	}
 	if workloadHR.Spec.KubeConfig == nil || workloadHR.Spec.KubeConfig.SecretRef.Name != "wl-kubeconfig" {
