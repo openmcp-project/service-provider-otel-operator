@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 		},
 		ServiceProviders: []providers.ServiceProviderSetup{
 			{
-				Name:               "oteloperator",
+				Name:               "otel-operator",
 				Image:              fmt.Sprintf("ghcr.io/openmcp-project/images/service-provider-otel-operator:%s", version),
 				LoadImageToCluster: true,
 				WaitOpts:           []wait.Option{wait.WithTimeout(5 * time.Minute)},
