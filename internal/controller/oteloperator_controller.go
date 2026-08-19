@@ -275,8 +275,9 @@ func joinStrings(ss []string) string {
 }
 
 func (r *OtelOperatorReconciler) ensureInstanceID(ctx context.Context, obj *apiv1alpha1.OtelOperator) error {
-	if instance.GetID(obj) == "" {
-		instance.SetID(obj, instance.GenerateID(obj))
+	generated := instance.GenerateID(obj)
+	if instance.GetID(obj) != generated {
+		instance.SetID(obj, generated)
 		if err := r.OnboardingCluster.Client().Update(ctx, obj); err != nil {
 			return fmt.Errorf("failed to set instance id of otel operator resource %s/%s: %w", obj.Namespace, obj.Name, err)
 		}
