@@ -4,6 +4,26 @@
 
 An [OpenMCP](https://github.com/openmcp-project) Service Provider that automates the deployment and lifecycle management of the [OpenTelemetry Operator](https://github.com/open-telemetry/opentelemetry-operator) into Control Planes (CPs) via Helm.
 
+## Quality Criteria
+
+<!-- Update the tier badge and tick each criterion as you implement it. See https://open-control-plane.io/developers/serviceprovider/quality-criteria for definitions. -->
+
+[![Quality: Experimental](https://img.shields.io/badge/Quality-Experimental-e69138?style=flat-square&labelColor=555)](https://open-control-plane.io/developers/serviceprovider/quality-criteria)
+
+| Criterion                         | Status  | Notes |
+| --------------------------------- | :----:  | ----- |
+| Deletion behaviour                |   ❌    |       |
+| Status reporting & error messages |   ❌    |       |
+| Operation annotations             |   ❌    |       |
+| API stability policy              |   ❌    |       |
+| Custom CA support                 |   ❌    |       |
+| Release artifacts (image + OCM)   |   ❌    |       |
+| Testing                           |   ❌    |       |
+| Ownership and maintenance docs    |   ❌    |       |
+
+See the [OpenControlPlane Quality Criteria](https://open-control-plane.io/developers/serviceprovider/quality-criteria) for definitions.
+
+
 ## Overview
 
 This service provider installs the OpenTelemetry Operator for each CP that requests one. It uses the official [opentelemetry-kube-stack Helm chart](https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-kube-stack) for both releases: one CRD-only release targets the CP, and one operator-only release targets the workload cluster. Once the operator is running, users can create `OpenTelemetryCollector` custom resources in the CP to configure and manage collector instances.
@@ -177,18 +197,37 @@ The service provider binary accepts a command (`init` or `run`) as its first arg
 | `--enable-http2` | `false` | Enable HTTP/2 for metrics and webhook servers |
 | `--verbosity` | | Logging verbosity level |
 
-## Support, Feedback, Contributing
 
-This project is open to feature requests/suggestions, bug reports etc. via [GitHub issues](https://github.com/openmcp-project/service-provider-otel-operator/issues). Contribution and feedback are encouraged and always welcome. For more information about how to contribute, the project structure, as well as additional contribution information, see our [Contribution Guidelines](CONTRIBUTING.md).
+## 🤝 Support, Feedback, Contributing
 
-## Security / Disclosure
+This project is open to feature requests/suggestions, bug reports etc. via [GitHub issues](https://github.com/openmcp-project/service-provider-flux/issues). Contribution and feedback are encouraged and always welcome. For more information about how to contribute, the project structure, as well as additional contribution information, see our [Contribution Guidelines](https://github.com/openmcp-project/.github/blob/main/CONTRIBUTING.md).
 
-If you find any bug that may be a security problem, please follow our instructions at [in our security policy](https://github.com/openmcp-project/service-provider-otel-operator/security/policy) on how to report it. Please do not create GitHub issues for security-related doubts or problems.
+## 🔒 Security / Disclosure
 
-## Code of Conduct
+If you find any bug that may be a security problem, please follow our instructions at [in our security policy](https://github.com/openmcp-project/service-provider-flux/security/policy) on how to report it. Please do not create GitHub issues for security-related doubts or problems.
 
-We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for everyone. By participating in this project, you agree to abide by its [Code of Conduct](https://github.com/SAP/.github/blob/main/CODE_OF_CONDUCT.md) at all times.
+## 📜 Code of Conduct
 
-## Licensing
+We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for everyone. By participating in this project, you agree to abide by its [Code of Conduct](https://github.com/openmcp-project/.github/blob/main/CODE_OF_CONDUCT.md) at all times.
 
-Copyright 2025 SAP SE or an SAP affiliate company and service-provider-otel-operator contributors. Please see our [LICENSE](LICENSE) for copyright and license information. Detailed information including third-party components and their licensing/copyright information is available [via the REUSE tool](https://api.reuse.software/info/github.com/openmcp-project/service-provider-otel-operator).
+## 📄 Licensing
+
+"Flux" is a registered trademark of the Linux Foundation.
+
+Copyright OpenControlPlane contributors. Please see our [LICENSE](LICENSE) for copyright and license information. Detailed information including third-party components and their licensing/copyright information is available [via the REUSE tool](https://api.reuse.software/info/github.com/openmcp-project/service-provider-flux).
+
+---
+
+<p align="center">
+  <a href="https://apeirora.eu/content/projects/">
+    <img alt="BMWK-EU funding logo" src="https://apeirora.eu/assets/img/BMWK-EU.png" width="300"/>
+  </a>
+</p>
+
+<p align="center">
+  OpenControlPlane is part of <a href="https://apeirora.eu/content/projects/">ApeiroRA</a>, an EU Important Project of Common European Interest (IPCEI-CIS).
+</p>
+
+<p align="center">
+  Copyright Linux Foundation Europe. For web site terms of use, trademark policy and other project policies please see <a href="https://linuxfoundation.eu/en/policies">https://linuxfoundation.eu/en/policies</a>.
+</p>
