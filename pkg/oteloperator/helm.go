@@ -8,7 +8,13 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
-const helmKeyEnabled = "enabled"
+const (
+	helmKeyEnabled      = "enabled"
+	cpKubeconfigEnvName = "KUBECONFIG"
+	cpKubeconfigVolume  = "cp-kubeconfig"
+	cpKubeconfigPath    = "/var/run/secrets/openmcp.cloud/cp-kubeconfig/kubeconfig"
+	operatorTokenPath   = "/var/run/secrets/kubernetes.io/serviceaccount/kubeconfig"
+)
 
 // HelmValues defines the helm values that are explicitly processed during reconciliation.
 type HelmValues struct {
@@ -81,12 +87,14 @@ func CRDHelmValues(_ *apiextensionsv1.JSON) (*apiextensionsv1.JSON, error) {
 	return marshalRoot(root, "CRD helm values")
 }
 
-// AddAuthToHelmValues injects KUBERNETES_SERVICE_HOST/PORT env vars into the
-// opentelemetry-operator manager so it connects to the CP cluster API.
+// AddAuthToHelmValues injects CP API access into the workload release.
+// The opentelemetry-operator manager watches the CP via KUBECONFIG while running
+// in the workload cluster. Chart-created collectors also get the same kubeconfig
+// mounted so their Kubernetes receivers can talk to the CP API.
 // The SA token and CA cert are supplied by the post-renderer-patched volume mount
-// (see cpAccessPostRenderers in flux.go), so no volume configuration is needed here.
+// (see cpAccessPostRenderers in flux.go).
 // nolint:gocyclo
-func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster, _ string) (*apiextensionsv1.JSON, error) {
+func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, error) {
 	remoteHost, remotePort := cpCluster.GetHostAndPort()
 
 	root, err := unmarshalRoot(values)
@@ -110,16 +118,19 @@ func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster,
 	}
 	root["opentelemetry-operator"] = opValuesRaw
 
-	out, err := json.Marshal(root)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal helm values: %w", err)
+	if saSecretName != "" {
+		if err := injectKubeconfigIntoDefaultCRConfig(root, saSecretName); err != nil {
+			return nil, err
+		}
 	}
-	return &apiextensionsv1.JSON{Raw: out}, nil
+
+	return marshalRoot(root, "helm values")
 }
 
 func injectAuthIntoManager(root map[string]json.RawMessage, host, port string) error {
 	hostEnvVar := corev1.EnvVar{Name: "KUBERNETES_SERVICE_HOST", Value: host}
 	portEnvVar := corev1.EnvVar{Name: "KUBERNETES_SERVICE_PORT", Value: port}
+	kubeconfigEnvVar := corev1.EnvVar{Name: cpKubeconfigEnvName, Value: operatorTokenPath}
 
 	var managerValues map[string]json.RawMessage
 	if err := unmarshalIfPresent(root, "manager", &managerValues); err != nil {
@@ -132,7 +143,7 @@ func injectAuthIntoManager(root map[string]json.RawMessage, host, port string) e
 	if err := unmarshalIfPresent(managerValues, "extraEnvs", &envs); err != nil {
 		return fmt.Errorf("failed to unmarshal manager.extraEnvs: %w", err)
 	}
-	envsRaw, err := json.Marshal(removeConflictingEnvVarsAndAppend(removeConflictingEnvVarsAndAppend(envs, hostEnvVar), portEnvVar))
+	envsRaw, err := json.Marshal(removeConflictingEnvVarsAndAppend(removeConflictingEnvVarsAndAppend(removeConflictingEnvVarsAndAppend(envs, hostEnvVar), portEnvVar), kubeconfigEnvVar))
 	if err != nil {
 		return fmt.Errorf("failed to marshal manager.extraEnvs: %w", err)
 	}
@@ -142,6 +153,53 @@ func injectAuthIntoManager(root map[string]json.RawMessage, host, port string) e
 		return fmt.Errorf("failed to marshal manager: %w", err)
 	}
 	root["manager"] = managerValuesRaw
+	return nil
+}
+
+func injectKubeconfigIntoDefaultCRConfig(root map[string]json.RawMessage, secretName string) error {
+	var defaultCRConfig map[string]json.RawMessage
+	if err := unmarshalIfPresent(root, "defaultCRConfig", &defaultCRConfig); err != nil {
+		return fmt.Errorf("failed to unmarshal defaultCRConfig: %w", err)
+	}
+	if defaultCRConfig == nil {
+		defaultCRConfig = make(map[string]json.RawMessage)
+	}
+
+	var envs []corev1.EnvVar
+	if err := unmarshalIfPresent(defaultCRConfig, "env", &envs); err != nil {
+		return fmt.Errorf("failed to unmarshal defaultCRConfig.env: %w", err)
+	}
+	envs = removeConflictingEnvVarsAndAppend(envs, corev1.EnvVar{Name: cpKubeconfigEnvName, Value: cpKubeconfigPath})
+	setRawValue(defaultCRConfig, "env", envs)
+
+	var volumeMounts []corev1.VolumeMount
+	if err := unmarshalIfPresent(defaultCRConfig, "volumeMounts", &volumeMounts); err != nil {
+		return fmt.Errorf("failed to unmarshal defaultCRConfig.volumeMounts: %w", err)
+	}
+	volumeMounts = removeConflictingVolumeMountsAndAppend(volumeMounts, corev1.VolumeMount{
+		Name:      cpKubeconfigVolume,
+		MountPath: "/var/run/secrets/openmcp.cloud/cp-kubeconfig",
+		ReadOnly:  true,
+	})
+	setRawValue(defaultCRConfig, "volumeMounts", volumeMounts)
+
+	var volumes []corev1.Volume
+	if err := unmarshalIfPresent(defaultCRConfig, "volumes", &volumes); err != nil {
+		return fmt.Errorf("failed to unmarshal defaultCRConfig.volumes: %w", err)
+	}
+	volumes = removeConflictingVolumesAndAppend(volumes, corev1.Volume{
+		Name: cpKubeconfigVolume,
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+			SecretName: secretName,
+		}},
+	})
+	setRawValue(defaultCRConfig, "volumes", volumes)
+
+	defaultCRConfigRaw, err := json.Marshal(defaultCRConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal defaultCRConfig: %w", err)
+	}
+	root["defaultCRConfig"] = defaultCRConfigRaw
 	return nil
 }
 
@@ -204,4 +262,24 @@ func removeConflictingEnvVarsAndAppend(envVars []corev1.EnvVar, newEnvVar corev1
 		}
 	}
 	return append(updated, newEnvVar)
+}
+
+func removeConflictingVolumeMountsAndAppend(volumeMounts []corev1.VolumeMount, newVolumeMount corev1.VolumeMount) []corev1.VolumeMount {
+	updated := []corev1.VolumeMount{}
+	for _, vm := range volumeMounts {
+		if vm.Name != newVolumeMount.Name && vm.MountPath != newVolumeMount.MountPath {
+			updated = append(updated, vm)
+		}
+	}
+	return append(updated, newVolumeMount)
+}
+
+func removeConflictingVolumesAndAppend(volumes []corev1.Volume, newVolume corev1.Volume) []corev1.Volume {
+	updated := []corev1.Volume{}
+	for _, v := range volumes {
+		if v.Name != newVolume.Name {
+			updated = append(updated, v)
+		}
+	}
+	return append(updated, newVolume)
 }

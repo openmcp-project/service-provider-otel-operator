@@ -150,13 +150,13 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	}
 	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
 
-	workloadHelmValues, err := oteloperator.AddAuthToHelmValues(pc.Spec.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
-	if err != nil {
-		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
-	}
-	workloadHelmValues, err = oteloperator.WorkloadHelmValues(workloadHelmValues)
+	workloadHelmValues, err := oteloperator.WorkloadHelmValues(pc.Spec.HelmValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set workload helm values: %w", err)
+	}
+	workloadHelmValues, err = oteloperator.AddAuthToHelmValues(workloadHelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	if err != nil {
+		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
 	}
 	crdHelmValues, err := oteloperator.CRDHelmValues(pc.Spec.HelmValues)
 	if err != nil {
@@ -275,8 +275,9 @@ func joinStrings(ss []string) string {
 }
 
 func (r *OtelOperatorReconciler) ensureInstanceID(ctx context.Context, obj *apiv1alpha1.OtelOperator) error {
-	if instance.GetID(obj) == "" {
-		instance.SetID(obj, instance.GenerateID(obj))
+	generated := instance.GenerateID(obj)
+	if instance.GetID(obj) != generated {
+		instance.SetID(obj, generated)
 		if err := r.OnboardingCluster.Client().Update(ctx, obj); err != nil {
 			return fmt.Errorf("failed to set instance id of otel operator resource %s/%s: %w", obj.Namespace, obj.Name, err)
 		}
