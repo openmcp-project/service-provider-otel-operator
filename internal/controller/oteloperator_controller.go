@@ -150,13 +150,13 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	}
 	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
 
-	workloadHelmValues, err := oteloperator.AddAuthToHelmValues(pc.Spec.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
-	if err != nil {
-		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
-	}
-	workloadHelmValues, err = oteloperator.WorkloadHelmValues(workloadHelmValues)
+	workloadHelmValues, err := oteloperator.WorkloadHelmValues(pc.Spec.HelmValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set workload helm values: %w", err)
+	}
+	workloadHelmValues, err = oteloperator.AddAuthToHelmValues(workloadHelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	if err != nil {
+		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
 	}
 	crdHelmValues, err := oteloperator.CRDHelmValues(pc.Spec.HelmValues)
 	if err != nil {

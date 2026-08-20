@@ -204,6 +204,7 @@ func TestAddAuthToHelmValues_UsesKubeStackOperatorManagerExtraEnvs(t *testing.T)
 		"KEEP":                    "1",
 		"KUBERNETES_SERVICE_HOST": "localhost",
 		"KUBERNETES_SERVICE_PORT": "6443",
+		"KUBECONFIG":              operatorTokenPath,
 	}
 	for _, env := range envs {
 		if _, ok := want[env.Name]; ok && want[env.Name] == env.Value {
@@ -212,5 +213,48 @@ func TestAddAuthToHelmValues_UsesKubeStackOperatorManagerExtraEnvs(t *testing.T)
 	}
 	if len(want) > 0 {
 		t.Fatalf("missing env vars: %#v", want)
+	}
+}
+
+func TestAddAuthToHelmValues_InjectsCollectorKubeconfigDefaults(t *testing.T) {
+	cluster := &fakeManagedCluster{}
+	out, err := AddAuthToHelmValues(&apiextensionsv1.JSON{Raw: []byte(`{"defaultCRConfig":{"env":[{"name":"KEEP","value":"1"}]}}`)}, cluster, "cp-kubeconfig")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(out.Raw, &root); err != nil {
+		t.Fatalf("invalid output JSON: %v", err)
+	}
+	var defaultCRConfig map[string]json.RawMessage
+	if err := json.Unmarshal(root["defaultCRConfig"], &defaultCRConfig); err != nil {
+		t.Fatalf("invalid defaultCRConfig JSON: %v", err)
+	}
+	var envs []corev1.EnvVar
+	if err := json.Unmarshal(defaultCRConfig["env"], &envs); err != nil {
+		t.Fatalf("invalid defaultCRConfig.env JSON: %v", err)
+	}
+	wantEnv := map[string]string{"KEEP": "1", "KUBECONFIG": cpKubeconfigPath}
+	for _, env := range envs {
+		if wantEnv[env.Name] == env.Value {
+			delete(wantEnv, env.Name)
+		}
+	}
+	if len(wantEnv) > 0 {
+		t.Fatalf("missing collector env vars: %#v", wantEnv)
+	}
+	var volumeMounts []corev1.VolumeMount
+	if err := json.Unmarshal(defaultCRConfig["volumeMounts"], &volumeMounts); err != nil {
+		t.Fatalf("invalid defaultCRConfig.volumeMounts JSON: %v", err)
+	}
+	if len(volumeMounts) != 1 || volumeMounts[0].Name != cpKubeconfigVolume || volumeMounts[0].MountPath != "/var/run/secrets/openmcp.cloud/cp-kubeconfig" || !volumeMounts[0].ReadOnly {
+		t.Fatalf("unexpected collector volumeMounts: %#v", volumeMounts)
+	}
+	var volumes []corev1.Volume
+	if err := json.Unmarshal(defaultCRConfig["volumes"], &volumes); err != nil {
+		t.Fatalf("invalid defaultCRConfig.volumes JSON: %v", err)
+	}
+	if len(volumes) != 1 || volumes[0].Name != cpKubeconfigVolume || volumes[0].Secret == nil || volumes[0].Secret.SecretName != "cp-kubeconfig" {
+		t.Fatalf("unexpected collector volumes: %#v", volumes)
 	}
 }

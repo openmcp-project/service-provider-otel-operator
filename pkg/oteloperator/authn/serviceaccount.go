@@ -29,6 +29,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
@@ -45,6 +47,7 @@ var (
 )
 
 type serviceAccountToken struct {
+	Host        string
 	CAData      []byte
 	Token       string
 	TokenExpiry time.Time
@@ -76,6 +79,7 @@ func generateToken(ctx context.Context, cp *clusters.Cluster, cfg *rest.Config, 
 	}
 
 	rc := &serviceAccountToken{
+		Host:        cfg.Host,
 		Token:       req.Status.Token,
 		TokenExpiry: req.Status.ExpirationTimestamp.Time,
 		CAData:      cfg.CAData,
@@ -153,10 +157,15 @@ func (m *ManagedServiceAccount) Configure(workloadCluster, cpCluster oteloperato
 				if err != nil {
 					return err
 				}
+				kubeconfig, err := tokenKubeconfig(rc, cpCluster.GetDefaultNamespace())
+				if err != nil {
+					return err
+				}
 				oSecret.Data = map[string][]byte{
-					"token":     []byte(rc.Token),
-					"namespace": []byte(cpCluster.GetDefaultNamespace()),
-					"ca.crt":    rc.CAData,
+					"token":      []byte(rc.Token),
+					"namespace":  []byte(cpCluster.GetDefaultNamespace()),
+					"ca.crt":     rc.CAData,
+					"kubeconfig": kubeconfig,
 				}
 				setTokenExpirationTime(oSecret, rc.TokenExpiry)
 			}
@@ -165,6 +174,31 @@ func (m *ManagedServiceAccount) Configure(workloadCluster, cpCluster oteloperato
 		StatusFunc: oteloperator.SimpleStatus,
 	})
 	workloadCluster.AddObject(secret)
+}
+
+func tokenKubeconfig(token *serviceAccountToken, namespace string) ([]byte, error) {
+	cfg := clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"cp": {
+				Server:                   token.Host,
+				CertificateAuthorityData: token.CAData,
+			},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"otel-operator": {
+				Token: token.Token,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			"cp": {
+				Cluster:   "cp",
+				AuthInfo:  "otel-operator",
+				Namespace: namespace,
+			},
+		},
+		CurrentContext: "cp",
+	}
+	return clientcmd.Write(cfg)
 }
 
 func getTokenExpirationTime(obj *corev1.Secret) (time.Time, error) {
