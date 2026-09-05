@@ -6,7 +6,7 @@ require (
 	github.com/fluxcd/helm-controller/api v1.6.3
 	github.com/fluxcd/pkg/apis/kustomize v1.20.0
 	github.com/fluxcd/pkg/apis/meta v1.31.0
-	github.com/fluxcd/pkg/runtime v0.111.0
+	github.com/fluxcd/pkg/runtime v0.112.0
 	github.com/fluxcd/source-controller/api v1.9.4
 	github.com/openmcp-project/controller-utils v0.33.0
 	github.com/openmcp-project/opencontrolplane-runtime v1.3.0
