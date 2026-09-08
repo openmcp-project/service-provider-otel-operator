@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
@@ -34,20 +35,25 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	crdutil "github.com/openmcp-project/controller-utils/pkg/crds"
 	"github.com/openmcp-project/controller-utils/pkg/logging"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
+	localaccess "github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
 	"github.com/openmcp-project/openmcp-operator/api/common"
 	openmcpconst "github.com/openmcp-project/openmcp-operator/api/constants"
 	providerv1alpha1 "github.com/openmcp-project/openmcp-operator/api/provider/v1alpha1"
+	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
 	libclusteraccess "github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
+	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess/advanced"
 	"github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	"github.com/openmcp-project/service-provider-otel-operator/api/crds"
@@ -95,6 +101,10 @@ func initWorkloadScheme() {
 	utilruntime.Must(clientgoscheme.AddToScheme(workloadScheme))
 	utilruntime.Must(apiextensionv1.AddToScheme(workloadScheme))
 }
+
+const (
+	debugEnvVar = "DEV_DEBUG"
+)
 
 // nolint:gocyclo
 func main() {
@@ -179,6 +189,7 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	// start sp specifics
 	log, err := logging.GetLogger()
 	if err != nil {
 		setupLog.Error(err, "Failed to get logger")
@@ -196,39 +207,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	adminPermissions := []clustersv1alpha1.PermissionsRequest{
-		{
-			Rules: []rbacv1.PolicyRule{
-				{
-					APIGroups: []string{"*"},
-					Resources: []string{"*"},
-					Verbs:     []string{"*"},
-				},
-			},
-		},
-	}
-
-	onboardingPermissions := []clustersv1alpha1.PermissionsRequest{
-		{
-			Rules: []rbacv1.PolicyRule{
-				{
-					APIGroups: []string{"*"},
-					Resources: []string{"*"},
-					Verbs:     []string{"*"},
-				},
-			},
-		},
-	}
 	clusterAccessManager := libclusteraccess.NewClusterAccessManager(platformCluster.Client(),
-		"oteloperator.oteloperator.services.openmcp.cloud", os.Getenv("POD_NAMESPACE"))
+		oteloperatorv1alpha1.GroupVersion.Group, podNamespace)
 	clusterAccessManager.WithLogger(&log).
 		WithInterval(10 * time.Second).
 		WithTimeout(30 * time.Minute)
 	ctx := context.Background()
-	if command == "init" {
-		onboardingCluster, err := clusterAccessManager.CreateAndWaitForCluster(ctx, "onboarding-init",
-			clustersv1alpha1.PURPOSE_ONBOARDING, onboardingScheme, onboardingPermissions)
 
+	// init (job that installs CRDs)
+	if command == "init" {
+		initPermissions := []clustersv1alpha1.PermissionsRequest{
+			{
+
+				Rules: []rbacv1.PolicyRule{
+					{
+						APIGroups: []string{"apiextensions.k8s.io"},
+						Resources: []string{"customresourcedefinitions"},
+						Verbs:     []string{"*"},
+					},
+				},
+			},
+		}
+		onboardingCluster, err := requestOnboardingClusterAccess(ctx, clusterAccessManager, platformCluster, initPermissions, "init")
 		if err != nil {
 			setupLog.Error(err, "Failed to create and wait for onboarding cluster access")
 		}
@@ -255,11 +255,23 @@ func main() {
 		return
 	}
 
-	onboardingCluster, err := clusterAccessManager.CreateAndWaitForCluster(ctx, "onboarding-run",
-		clustersv1alpha1.PURPOSE_ONBOARDING, onboardingScheme, onboardingPermissions)
+	// run (sp controller deployment)
+	runPermissions := []clustersv1alpha1.PermissionsRequest{
+		{
+			Rules: []rbacv1.PolicyRule{
+				{
+					APIGroups: []string{oteloperatorv1alpha1.GroupVersion.Group},
+					Resources: []string{"*"},
+					Verbs:     []string{"*"},
+				},
+			},
+		},
+	}
+	onboardingCluster, err := requestOnboardingClusterAccess(ctx, clusterAccessManager, platformCluster, runPermissions, "run")
 	if err != nil {
 		setupLog.Error(err, "Failed to create and wait for onboarding cluster access")
 	}
+	// end sp specifics
 
 	mgr, err := ctrl.NewManager(onboardingCluster.RESTConfig(), ctrl.Options{
 		Scheme:                        onboardingScheme,
@@ -267,11 +279,11 @@ func main() {
 		WebhookServer:                 webhookServer,
 		HealthProbeBindAddress:        probeAddr,
 		LeaderElection:                enableLeaderElection,
-		LeaderElectionID:              "232f9e39.openmcp.cloud",
+		LeaderElectionID:              "services.open-control-plane.io.otelcollector",
 		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, "unable to create manager")
 		os.Exit(1)
 	}
 	if err = mgr.Add(platformCluster.Cluster()); err != nil {
@@ -279,40 +291,100 @@ func main() {
 		os.Exit(1)
 	}
 
-	clusterAccessReconciler := libclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), providerName).
-		WithMCPScheme(cpScheme).
-		WithMCPPermissions(adminPermissions).
-		WithMCPRoleRefs([]common.RoleRef{
+	// TODO: define minimum set of permission the service provider requires on the cp cluster
+	cpTokenAccessConfig := &clustersv1alpha1.TokenConfig{
+		Permissions: []clustersv1alpha1.PermissionsRequest{
+			{
+				// Create NS -> pkg/oteloperator/authn/serviceaccount.go:299 TODO: Change comment
+				Rules: []rbacv1.PolicyRule{
+					{
+						APIGroups: []string{"*"},
+						Resources: []string{"*"},
+						Verbs:     []string{"*"},
+					},
+				},
+			},
+		},
+		RoleRefs: []common.RoleRef{
 			{
 				Name: "cluster-admin",
 				Kind: "ClusterRole",
 			},
-		}).
-		WithWorkloadScheme(workloadScheme).
-		WithWorkloadPermissions(adminPermissions).
-		WithWorkloadRoleRefs([]common.RoleRef{
+		},
+	}
+
+	cpClusterRequest := advanced.ExistingClusterRequest(clustersv1alpha1.PURPOSE_MCP, "cp", func(req reconcile.Request, _ ...any) (*common.ObjectReference, error) {
+		namespace, err := utils.StableMCPNamespace(req.Name, req.Namespace)
+		if err != nil {
+			return nil, err
+		}
+		return &common.ObjectReference{
+			Name:      req.Name,
+			Namespace: namespace,
+		}, nil
+	}).
+		WithNamespaceGenerator(advanced.DefaultNamespaceGeneratorForMCP).
+		WithTokenAccess(cpTokenAccessConfig).
+		WithScheme(cpScheme).
+		Build()
+
+	// TODO: define minimum set of permission the service provider requires on the workload cluster
+	workloadTokenAccessConfig := &clustersv1alpha1.TokenConfig{
+		Permissions: []clustersv1alpha1.PermissionsRequest{
+			{
+				Rules: []rbacv1.PolicyRule{
+					{
+						APIGroups: []string{"*"},
+						Resources: []string{"*"},
+						Verbs:     []string{"*"},
+					},
+				},
+			},
+		},
+		RoleRefs: []common.RoleRef{
 			{
 				Name: "cluster-admin",
 				Kind: "ClusterRole",
 			},
+		},
+	}
+	workloadClusterRequest := advanced.NewClusterRequest(clustersv1alpha1.PURPOSE_WORKLOAD, "wl", advanced.StaticClusterRequestSpecGenerator(&clustersv1alpha1.ClusterRequestSpec{
+		Purpose: clustersv1alpha1.PURPOSE_WORKLOAD,
+	})).
+		WithNamespaceGenerator(advanced.DefaultNamespaceGeneratorForMCP).
+		WithTokenAccess(workloadTokenAccessConfig).
+		WithScheme(workloadScheme).
+		Build()
+
+	clusterAccessReconciler := advanced.NewClusterAccessReconciler(platformCluster.Client(), providerName)
+	if debugEnabled() {
+		clusterAccessReconciler = localaccess.NewLocalAdvancedClusterAccessReconciler(clusterAccessReconciler, localaccess.WithWorkloadCluster())
+	}
+
+	clusterAccessReconciler.
+		WithManagedLabels(func(controllerName string, req reconcile.Request, reg advanced.ClusterRegistration) (string, string, map[string]string) {
+			_, managedPurpose, _ := advanced.DefaultManagedLabelGenerator(controllerName, req, reg)
+			return controllerName, managedPurpose, map[string]string{
+				openmcpconst.OnboardingNameLabel:      req.Name,
+				openmcpconst.OnboardingNamespaceLabel: req.Namespace,
+			}
 		}).
+		Register(cpClusterRequest).
+		Register(workloadClusterRequest).
 		WithRetryInterval(10 * time.Second)
 
 	spr := serviceprovider.NewAPIReconcilerBuilder[*oteloperatorv1alpha1.OtelOperator, *oteloperatorv1alpha1.ProviderConfig]().
-		EmptyObjectProvider(func() *oteloperatorv1alpha1.OtelOperator {
-			return &oteloperatorv1alpha1.OtelOperator{}
-		}).
-		EmptyConfigProvider(func() *oteloperatorv1alpha1.ProviderConfig {
-			return &oteloperatorv1alpha1.ProviderConfig{}
-		}).
+		EmptyObjectProvider(func() *oteloperatorv1alpha1.OtelOperator { return &oteloperatorv1alpha1.OtelOperator{} }).
+		EmptyConfigProvider(func() *oteloperatorv1alpha1.ProviderConfig { return &oteloperatorv1alpha1.ProviderConfig{} }).
 		PlatformCluster(platformCluster).
 		OnboardingCluster(onboardingCluster).
-		ClusterAccessReconciler(clusterAccessReconciler).
+		SecretNamespace(podNamespace).
 		Reconciler(&controller.OtelOperatorReconciler{
 			OnboardingCluster: onboardingCluster,
 			PlatformCluster:   platformCluster,
 			PodNamespace:      podNamespace,
 		}).
+		AdvancedClusterAccessReconciler(clusterAccessReconciler).
 		WorkloadCluster(true).
 		MustBuild()
 
@@ -345,4 +417,34 @@ func initializePlatformCluster() (*clusters.Cluster, error) {
 		return nil, err
 	}
 	return platformCluster, nil
+}
+
+func requestOnboardingClusterAccess(ctx context.Context, mgr clusteraccess.Manager, platformCluster *clusters.Cluster, permissions []clustersv1alpha1.PermissionsRequest, cmdSuffix string) (*clusters.Cluster, error) {
+	cluster, err := mgr.CreateAndWaitForCluster(ctx, "onboarding-"+cmdSuffix,
+		clustersv1alpha1.PURPOSE_ONBOARDING, onboardingScheme, permissions)
+	if err != nil {
+		return cluster, err
+	}
+	if debugEnabled() {
+		return patchOnboardingClient(ctx, platformCluster, cluster, "onboarding-"+cmdSuffix)
+	}
+	return cluster, nil
+}
+
+func patchOnboardingClient(ctx context.Context, platformCluster *clusters.Cluster, onboardingCluster *clusters.Cluster, cmdSuffix string) (*clusters.Cluster, error) {
+	onboardingAr := &clustersv1alpha1.AccessRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusteraccess.StableRequestNameFromLocalName(oteloperatorv1alpha1.GroupVersion.Group, cmdSuffix),
+			Namespace: os.Getenv("POD_NAMESPACE"),
+		},
+	}
+	if err := platformCluster.Client().Get(ctx, client.ObjectKeyFromObject(onboardingAr), onboardingAr); err != nil {
+		return onboardingCluster, err
+	}
+	return localaccess.MustPatchClusterClient(ctx, onboardingAr, onboardingCluster), nil
+}
+
+func debugEnabled() bool {
+	v := strings.ToLower(os.Getenv(debugEnvVar))
+	return v == "1" || v == "true"
 }
