@@ -1,4 +1,4 @@
-package oteloperator
+package flux
 
 import (
 	"context"
@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/helm"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 const (
@@ -251,7 +253,7 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 
 func mustCRDHelmValues(t *testing.T) *apiextensionsv1.JSON {
 	t.Helper()
-	values, err := CRDHelmValues(nil)
+	values, err := helm.CRDHelmValues(nil)
 	if err != nil {
 		t.Fatalf("CRDHelmValues failed: %v", err)
 	}
@@ -313,7 +315,7 @@ func TestManageFluxResources_WorkloadHelmReleaseHasCPAccessPostRenderer(t *testi
 
 func mustWorkloadHelmValues(t *testing.T) *apiextensionsv1.JSON {
 	t.Helper()
-	values, err := WorkloadHelmValues(nil)
+	values, err := helm.WorkloadHelmValues(nil)
 	if err != nil {
 		t.Fatalf("WorkloadHelmValues failed: %v", err)
 	}
@@ -379,16 +381,16 @@ func assertKubeStackCRDValues(t *testing.T, values *apiextensionsv1.JSON) {
 
 type fakeManagedCluster struct {
 	ns      string
-	objects []ManagedObject
+	objects []resources.ManagedObject
 }
 
-var _ ManagedCluster = &fakeManagedCluster{}
+var _ resources.ManagedCluster = &fakeManagedCluster{}
 
-func (f *fakeManagedCluster) AddObject(o ManagedObject)        { f.objects = append(f.objects, o) }
-func (f *fakeManagedCluster) GetObjects() []ManagedObject      { return f.objects }
-func (f *fakeManagedCluster) GetDefaultNamespace() string      { return f.ns }
-func (f *fakeManagedCluster) GetHostAndPort() (string, string) { return "localhost", "6443" }
-func (f *fakeManagedCluster) GetConfig() *rest.Config          { return nil }
-func (f *fakeManagedCluster) GetClient() client.Client         { return nil }
-func (f *fakeManagedCluster) GetCluster() *clusters.Cluster    { return nil }
-func (f *fakeManagedCluster) GetClusterType() ClusterType      { return ClusterTypePlatform }
+func (f *fakeManagedCluster) AddObject(o resources.ManagedObject)        { f.objects = append(f.objects, o) }
+func (f *fakeManagedCluster) GetObjects() []resources.ManagedObject      { return f.objects }
+func (f *fakeManagedCluster) GetDefaultNamespace() string                { return f.ns }
+func (f *fakeManagedCluster) GetHostAndPort() (string, string)           { return "localhost", "6443" }
+func (f *fakeManagedCluster) GetConfig() *rest.Config                    { return nil }
+func (f *fakeManagedCluster) GetClient() client.Client                   { return nil }
+func (f *fakeManagedCluster) GetCluster() *clusters.Cluster              { return nil }
+func (f *fakeManagedCluster) GetClusterType() resources.ClusterType      { return resources.ClusterTypePlatform }
