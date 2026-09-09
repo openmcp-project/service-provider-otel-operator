@@ -38,11 +38,15 @@ import (
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authz"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/flux"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/helm"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/instance"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/objectutils"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/secret"
 )
 
 const namespaceOtelOperator = "opentelemetry-operator-system"
@@ -111,7 +115,7 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 	results := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
-	if oteloperator.AllDeleted(results) {
+	if resources.AllDeleted(results) {
 		return ctrl.Result{}, nil
 	}
 	if resultContainsErrors {
@@ -122,24 +126,24 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
 
-func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (oteloperator.Manager, error) {
+func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (resources.Manager, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine tenant namespace: %w", err)
 	}
-	helmValues, err := oteloperator.ExtractHelmValues(pc.Spec.HelmValues)
+	helmValues, err := helm.ExtractHelmValues(pc.Spec.HelmValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 
-	platformCluster := oteloperator.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, oteloperator.ClusterTypePlatform)
+	platformCluster := resources.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, resources.ClusterTypePlatform)
 	otelOperatorNamespace := namespaceOtelOperator
 	if helmValues.NamespaceOverride != "" {
 		otelOperatorNamespace = helmValues.NamespaceOverride
 	}
 	workloadNamespace := instance.Namespace(obj)
-	cpCluster := oteloperator.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, oteloperator.ClusterTypeCP)
-	workloadCluster := oteloperator.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), workloadNamespace, oteloperator.ClusterTypeWorkload)
+	cpCluster := resources.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, resources.ClusterTypeCP)
+	workloadCluster := resources.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), workloadNamespace, resources.ClusterTypeWorkload)
 
 	// ServiceAccount on CP + token Secret on workload so otel-operator connects to CP API.
 	cpServiceAccount := &authn.ManagedServiceAccount{
@@ -150,15 +154,15 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	}
 	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
 
-	workloadHelmValues, err := oteloperator.WorkloadHelmValues(pc.Spec.HelmValues)
+	workloadHelmValues, err := helm.WorkloadHelmValues(pc.Spec.HelmValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set workload helm values: %w", err)
 	}
-	workloadHelmValues, err = oteloperator.AddAuthToHelmValues(workloadHelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	workloadHelmValues, err = helm.AddAuthToHelmValues(workloadHelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
 	if err != nil {
 		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
 	}
-	crdHelmValues, err := oteloperator.CRDHelmValues(pc.Spec.HelmValues)
+	crdHelmValues, err := helm.CRDHelmValues(pc.Spec.HelmValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set CRD helm values: %w", err)
 	}
@@ -166,7 +170,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	authz.Configure(cpCluster, cpServiceAccount)
 
 	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		oteloperator.ManagePullSecret(workloadCluster, imagePullSecret, oteloperator.SecretCopyConfig{
+		secret.ManagePullSecret(workloadCluster, imagePullSecret, secret.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: otelOperatorNamespace,
@@ -176,11 +180,11 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 
 	var prefixedChartPullSecret string
 	if pc.Spec.ChartPullSecret != nil {
-		prefixedChartPullSecret, err = oteloperator.PrefixSecretName(*pc.Spec.ChartPullSecret)
+		prefixedChartPullSecret, err = secret.PrefixSecretName(*pc.Spec.ChartPullSecret)
 		if err != nil {
 			return nil, fmt.Errorf("error generating secret name: %w", err)
 		}
-		oteloperator.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, oteloperator.SecretCopyConfig{
+		secret.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, secret.SecretCopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: tenantNamespace,
@@ -188,7 +192,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		})
 	}
 
-	oteloperator.ManageFluxResources(oteloperator.ManageFluxResourcesParams{
+	flux.ManageFluxResources(flux.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
 		CPNamespace:         otelOperatorNamespace,
 		WorkloadNamespace:   workloadNamespace,
@@ -201,14 +205,14 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		SASecretName:        cpServiceAccount.KubeAPIAccess(),
 	})
 
-	mgr := oteloperator.NewManager()
+	mgr := resources.NewManager()
 	mgr.AddCluster(cpCluster)
 	mgr.AddCluster(workloadCluster)
 	mgr.AddCluster(platformCluster)
 	return mgr, nil
 }
 
-func resultsToResources(ctx context.Context, results []oteloperator.Result) ([]apiv1alpha1.ManagedResource, bool) {
+func resultsToResources(ctx context.Context, results []resources.Result) ([]apiv1alpha1.ManagedResource, bool) {
 	l := log.FromContext(ctx)
 	containsError := false
 	resources := make([]apiv1alpha1.ManagedResource, 0, len(results))
@@ -227,7 +231,7 @@ func resultsToResources(ctx context.Context, results []oteloperator.Result) ([]a
 		})
 		if res.Error != nil {
 			containsError = true
-			l.Error(res.Error, "objectID", oteloperator.ObjectID(obj))
+			l.Error(res.Error, "objectID", objectutils.ObjectID(obj))
 		}
 	}
 	return resources, containsError

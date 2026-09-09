@@ -33,7 +33,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 const (
@@ -107,14 +107,14 @@ func (m *ManagedServiceAccount) KubeAPIAccess() string {
 }
 
 // Configure adds a managed ServiceAccount to the CP cluster and a token Secret to the workload cluster.
-func (m *ManagedServiceAccount) Configure(workloadCluster, cpCluster oteloperator.ManagedCluster, pollInterval time.Duration) {
-	ns := oteloperator.NewManagedObject(&corev1.Namespace{
+func (m *ManagedServiceAccount) Configure(workloadCluster, cpCluster resources.ManagedCluster, pollInterval time.Duration) {
+	ns := resources.NewManagedObject(&corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: m.Namespace,
 		},
-	}, oteloperator.ManagedObjectContext{
+	}, resources.ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, _ client.Object) error { return nil },
-		StatusFunc:    oteloperator.SimpleStatus,
+		StatusFunc:    resources.SimpleStatus,
 	})
 	cpCluster.AddObject(ns)
 
@@ -124,30 +124,30 @@ func (m *ManagedServiceAccount) Configure(workloadCluster, cpCluster oteloperato
 			Namespace: m.Namespace,
 		},
 	}
-	msa := oteloperator.NewManagedObject(sa, oteloperator.ManagedObjectContext{
-		DependsOn:     []oteloperator.ManagedObject{ns},
+	msa := resources.NewManagedObject(sa, resources.ManagedObjectContext{
+		DependsOn:     []resources.ManagedObject{ns},
 		ReconcileFunc: func(_ context.Context, _ client.Object) error { return nil },
-		StatusFunc:    oteloperator.SimpleStatus,
+		StatusFunc:    resources.SimpleStatus,
 	})
 	cpCluster.AddObject(msa)
 
-	wcNamespace := oteloperator.NewManagedObject(&corev1.Namespace{
+	wcNamespace := resources.NewManagedObject(&corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: workloadCluster.GetDefaultNamespace(),
 		},
-	}, oteloperator.ManagedObjectContext{
+	}, resources.ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, _ client.Object) error { return nil },
-		StatusFunc:    oteloperator.SimpleStatus,
+		StatusFunc:    resources.SimpleStatus,
 	})
 	workloadCluster.AddObject(wcNamespace)
 
-	secret := oteloperator.NewManagedObject(&corev1.Secret{
+	secret := resources.NewManagedObject(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.KubeAPIAccess(),
 			Namespace: workloadCluster.GetDefaultNamespace(),
 		},
-	}, oteloperator.ManagedObjectContext{
-		DependsOn: []oteloperator.ManagedObject{msa},
+	}, resources.ManagedObjectContext{
+		DependsOn: []resources.ManagedObject{msa},
 		ReconcileFunc: func(ctx context.Context, o client.Object) error {
 			oSecret := o.(*corev1.Secret)
 			nextReconcile := time.Now().Add(pollInterval).Add(time.Minute)
@@ -171,7 +171,7 @@ func (m *ManagedServiceAccount) Configure(workloadCluster, cpCluster oteloperato
 			}
 			return nil
 		},
-		StatusFunc: oteloperator.SimpleStatus,
+		StatusFunc: resources.SimpleStatus,
 	})
 	workloadCluster.AddObject(secret)
 }

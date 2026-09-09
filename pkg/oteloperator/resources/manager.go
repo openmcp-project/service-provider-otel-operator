@@ -1,4 +1,4 @@
-package oteloperator
+package resources
 
 import (
 	"context"
@@ -8,6 +8,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/meta"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/objectutils"
 )
 
 // Custom operation result constants.
@@ -79,7 +82,7 @@ func (m *managerImpl) reconcileObject(ctx context.Context, mc ManagedCluster, mo
 	}
 
 	opResult, err := controllerutil.CreateOrUpdate(ctx, cl, obj, func() error {
-		SetManagedBy(obj)
+		meta.SetManagedBy(obj)
 		return mo.Reconcile(ctx)
 	})
 	return Result{Object: mo, Cluster: mc, OperationResult: opResult, Error: err}
@@ -97,7 +100,7 @@ func (m *managerImpl) checkForDependents(ctx context.Context, deps []dependency)
 			errs = append(errs, err)
 			continue
 		}
-		errs = append(errs, fmt.Errorf("dependent object still exists: %s", ObjectID(obj)))
+		errs = append(errs, fmt.Errorf("dependent object still exists: %s", objectutils.ObjectID(obj)))
 	}
 	return errors.Join(errs...)
 }

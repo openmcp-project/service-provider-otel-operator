@@ -1,4 +1,4 @@
-package oteloperator
+package helm
 
 import (
 	"encoding/json"
@@ -6,6 +6,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 const (
@@ -94,7 +96,7 @@ func CRDHelmValues(_ *apiextensionsv1.JSON) (*apiextensionsv1.JSON, error) {
 // The SA token and CA cert are supplied by the post-renderer-patched volume mount
 // (see cpAccessPostRenderers in flux.go).
 // nolint:gocyclo
-func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, error) {
+func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster resources.ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, error) {
 	remoteHost, remotePort := cpCluster.GetHostAndPort()
 
 	root, err := unmarshalRoot(values)
