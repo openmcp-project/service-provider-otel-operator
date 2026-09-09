@@ -13,8 +13,8 @@ import (
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
-// SecretCopyConfig holds the configuration for copying a secret.
-type SecretCopyConfig struct {
+// CopyConfig holds the configuration for copying a secret.
+type CopyConfig struct {
 	SourceClient    client.Client
 	SourceNamespace string
 	TargetNamespace string
@@ -24,7 +24,7 @@ type SecretCopyConfig struct {
 const secretNamePrefix = "sp-otelop-"
 
 // ManagePullSecret syncs a pull secret to the target cluster.
-func ManagePullSecret(targetCluster resources.ManagedCluster, pullSecret corev1.LocalObjectReference, config SecretCopyConfig) {
+func ManagePullSecret(targetCluster resources.ManagedCluster, pullSecret corev1.LocalObjectReference, config CopyConfig) {
 	secret := resources.NewManagedObject(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      config.TargetName,

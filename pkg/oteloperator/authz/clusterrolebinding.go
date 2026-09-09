@@ -23,8 +23,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 const clusterRoleBindingName = "otel-operator-server"

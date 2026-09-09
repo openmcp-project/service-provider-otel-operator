@@ -170,7 +170,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	authz.Configure(cpCluster, cpServiceAccount)
 
 	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		secret.ManagePullSecret(workloadCluster, imagePullSecret, secret.SecretCopyConfig{
+		secret.ManagePullSecret(workloadCluster, imagePullSecret, secret.CopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: otelOperatorNamespace,
@@ -184,7 +184,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		if err != nil {
 			return nil, fmt.Errorf("error generating secret name: %w", err)
 		}
-		secret.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, secret.SecretCopyConfig{
+		secret.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, secret.CopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: tenantNamespace,
