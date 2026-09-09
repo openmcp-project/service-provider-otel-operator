@@ -12,13 +12,14 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
-	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/helm"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/helm"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 const (

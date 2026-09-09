@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 func TestExtractHelmValues_Nil(t *testing.T) {
