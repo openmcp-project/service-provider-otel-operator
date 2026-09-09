@@ -70,18 +70,21 @@ func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1a
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	results := mgr.Apply(ctx)
+	results, cleanerErr := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
+	if resultContainsErrors || cleanerErr != nil {
+		resultWithErrors := errors.New("resources contain reconcile errors")
+		if cleanerErr != nil {
+			resultWithErrors = fmt.Errorf("resources contain reconcile errors: %w", cleanerErr)
+		}
+		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		return ctrl.Result{}, resultWithErrors
+	}
 	if allResourcesReady(managedResources) {
 		serviceprovider.StatusReady(obj)
 	} else {
 		serviceprovider.StatusProgressing(obj, "Reconciling", pendingResourcesMessage(managedResources))
-	}
-	if resultContainsErrors {
-		resultWithErrors := errors.New("resources contain reconcile errors")
-		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
-		return ctrl.Result{}, resultWithErrors
 	}
 	return ctrl.Result{}, nil
 }
@@ -112,16 +115,19 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	results := mgr.Delete(ctx)
+	results, cleanerErr := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
-	if resources.AllDeleted(results) {
-		return ctrl.Result{}, nil
-	}
-	if resultContainsErrors {
+	if resultContainsErrors || cleanerErr != nil {
 		resultWithErrors := errors.New("resources contain reconcile errors")
+		if cleanerErr != nil {
+			resultWithErrors = fmt.Errorf("resources contain reconcile errors: %w", cleanerErr)
+		}
 		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
 		return ctrl.Result{}, resultWithErrors
+	}
+	if resources.AllDeleted(results) {
+		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
