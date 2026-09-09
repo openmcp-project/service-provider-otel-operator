@@ -1,4 +1,4 @@
-package oteloperator
+package objectutils
 
 import (
 	"fmt"

@@ -1,4 +1,4 @@
-package oteloperator
+package helm
 
 import (
 	"encoding/json"
@@ -6,6 +6,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 const (
@@ -16,8 +18,8 @@ const (
 	operatorTokenPath   = "/var/run/secrets/kubernetes.io/serviceaccount/kubeconfig"
 )
 
-// HelmValues defines the helm values that are explicitly processed during reconciliation.
-type HelmValues struct {
+// Values defines the helm values that are explicitly processed during reconciliation.
+type Values struct {
 	NamespaceOverride string `json:"namespaceOverride,omitempty"`
 	Global            Global `json:"global,omitempty"`
 }
@@ -28,11 +30,11 @@ type Global struct {
 }
 
 // ExtractHelmValues extracts helm values required for processing.
-func ExtractHelmValues(values *apiextensionsv1.JSON) (*HelmValues, error) {
+func ExtractHelmValues(values *apiextensionsv1.JSON) (*Values, error) {
 	if values == nil || len(values.Raw) == 0 {
-		return &HelmValues{}, nil
+		return &Values{}, nil
 	}
-	vals := &HelmValues{}
+	vals := &Values{}
 	if err := json.Unmarshal(values.Raw, vals); err != nil {
 		return nil, err
 	}
@@ -94,7 +96,7 @@ func CRDHelmValues(_ *apiextensionsv1.JSON) (*apiextensionsv1.JSON, error) {
 // The SA token and CA cert are supplied by the post-renderer-patched volume mount
 // (see cpAccessPostRenderers in flux.go).
 // nolint:gocyclo
-func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, error) {
+func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster resources.ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, error) {
 	remoteHost, remotePort := cpCluster.GetHostAndPort()
 
 	root, err := unmarshalRoot(values)

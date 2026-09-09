@@ -23,19 +23,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 const clusterRoleBindingName = "otel-operator-server"
 
 // Configure adds a managed ClusterRoleBinding to the CP cluster granting cluster-admin to the SA.
-func Configure(cluster oteloperator.ManagedCluster, msa *authn.ManagedServiceAccount) {
-	crb := oteloperator.NewManagedObject(&rbacv1.ClusterRoleBinding{
+func Configure(cluster resources.ManagedCluster, msa *authn.ManagedServiceAccount) {
+	crb := resources.NewManagedObject(&rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: clusterRoleBindingName,
 		},
-	}, oteloperator.ManagedObjectContext{
+	}, resources.ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
 			oCRB := o.(*rbacv1.ClusterRoleBinding)
 			oCRB.Subjects = []rbacv1.Subject{
@@ -52,7 +52,7 @@ func Configure(cluster oteloperator.ManagedCluster, msa *authn.ManagedServiceAcc
 			}
 			return nil
 		},
-		StatusFunc: oteloperator.SimpleStatus,
+		StatusFunc: resources.SimpleStatus,
 	})
 	cluster.AddObject(crb)
 }

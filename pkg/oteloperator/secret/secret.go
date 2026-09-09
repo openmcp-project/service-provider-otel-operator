@@ -1,4 +1,4 @@
-package oteloperator
+package secret
 
 import (
 	"context"
@@ -9,10 +9,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
-// SecretCopyConfig holds the configuration for copying a secret.
-type SecretCopyConfig struct {
+// CopyConfig holds the configuration for copying a secret.
+type CopyConfig struct {
 	SourceClient    client.Client
 	SourceNamespace string
 	TargetNamespace string
@@ -22,13 +24,13 @@ type SecretCopyConfig struct {
 const secretNamePrefix = "sp-otelop-"
 
 // ManagePullSecret syncs a pull secret to the target cluster.
-func ManagePullSecret(targetCluster ManagedCluster, pullSecret corev1.LocalObjectReference, config SecretCopyConfig) {
-	secret := NewManagedObject(&corev1.Secret{
+func ManagePullSecret(targetCluster resources.ManagedCluster, pullSecret corev1.LocalObjectReference, config CopyConfig) {
+	secret := resources.NewManagedObject(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      config.TargetName,
 			Namespace: config.TargetNamespace,
 		},
-	}, ManagedObjectContext{
+	}, resources.ManagedObjectContext{
 		ReconcileFunc: func(ctx context.Context, o client.Object) error {
 			oSecret, ok := o.(*corev1.Secret)
 			if !ok {
@@ -46,7 +48,7 @@ func ManagePullSecret(targetCluster ManagedCluster, pullSecret corev1.LocalObjec
 			mutator := openmcpresources.NewSecretMutator(config.TargetName, config.TargetNamespace, sourceSecret.Data, corev1.SecretTypeDockerConfigJson)
 			return mutator.Mutate(oSecret)
 		},
-		StatusFunc: SimpleStatus,
+		StatusFunc: resources.SimpleStatus,
 	})
 	targetCluster.AddObject(secret)
 }

@@ -1,4 +1,4 @@
-package oteloperator
+package flux
 
 import (
 	"context"
@@ -16,11 +16,12 @@ import (
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 // ManageFluxResourcesParams groups all parameters to create the required Flux resources.
 type ManageFluxResourcesParams struct {
-	Cluster             ManagedCluster
+	Cluster             resources.ManagedCluster
 	CPNamespace         string
 	WorkloadNamespace   string
 	ChartPullSecretName string
@@ -45,12 +46,12 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 	kubeStackOCIRepo := newOCIRepository(p.Obj.Name, p.ProviderConfig.ChartURL(), p.Obj.Spec.Version, p)
 	p.Cluster.AddObject(kubeStackOCIRepo)
 
-	crdHelmRelease := NewManagedObject(&helmv2.HelmRelease{
+	crdHelmRelease := resources.NewManagedObject(&helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      helmReleaseName(p.Obj.Name, crdHelmReleaseSuffix),
 			Namespace: p.Cluster.GetDefaultNamespace(),
 		},
-	}, ManagedObjectContext{
+	}, resources.ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
 			release, ok := o.(*helmv2.HelmRelease)
 			if !ok {
@@ -69,18 +70,18 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 			release.Spec.Uninstall = orphanUninstall()
 			return nil
 		},
-		DependsOn:      []ManagedObject{kubeStackOCIRepo},
-		DeletionPolicy: Delete,
-		StatusFunc:     FluxStatus,
+		DependsOn:      []resources.ManagedObject{kubeStackOCIRepo},
+		DeletionPolicy: resources.Delete,
+		StatusFunc:     Status,
 	})
 	p.Cluster.AddObject(crdHelmRelease)
 
-	workloadHelmRelease := NewManagedObject(&helmv2.HelmRelease{
+	workloadHelmRelease := resources.NewManagedObject(&helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      helmReleaseName(p.Obj.Name, workloadHelmReleaseSuffix),
 			Namespace: p.Cluster.GetDefaultNamespace(),
 		},
-	}, ManagedObjectContext{
+	}, resources.ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
 			release, ok := o.(*helmv2.HelmRelease)
 			if !ok {
@@ -102,20 +103,20 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 			}
 			return nil
 		},
-		DependsOn:      []ManagedObject{kubeStackOCIRepo, crdHelmRelease},
-		DeletionPolicy: Delete,
-		StatusFunc:     FluxStatus,
+		DependsOn:      []resources.ManagedObject{kubeStackOCIRepo, crdHelmRelease},
+		DeletionPolicy: resources.Delete,
+		StatusFunc:     Status,
 	})
 	p.Cluster.AddObject(workloadHelmRelease)
 }
 
-func newOCIRepository(name, url, tag string, p ManageFluxResourcesParams) ManagedObject {
-	return NewManagedObject(&sourcev1.OCIRepository{
+func newOCIRepository(name, url, tag string, p ManageFluxResourcesParams) resources.ManagedObject {
+	return resources.NewManagedObject(&sourcev1.OCIRepository{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: p.Cluster.GetDefaultNamespace(),
 		},
-	}, ManagedObjectContext{
+	}, resources.ManagedObjectContext{
 		ReconcileFunc: func(_ context.Context, o client.Object) error {
 			repo, ok := o.(*sourcev1.OCIRepository)
 			if !ok {
@@ -139,9 +140,9 @@ func newOCIRepository(name, url, tag string, p ManageFluxResourcesParams) Manage
 			}
 			return nil
 		},
-		DependsOn:      []ManagedObject{},
-		DeletionPolicy: Delete,
-		StatusFunc:     FluxStatus,
+		DependsOn:      []resources.ManagedObject{},
+		DeletionPolicy: resources.Delete,
+		StatusFunc:     Status,
 	})
 }
 
@@ -178,16 +179,16 @@ func orphanUninstall() *helmv2.Uninstall {
 	return &helmv2.Uninstall{DeletionPropagation: &policy}
 }
 
-// FluxStatus indicates whether the given Flux object is terminating, pending, or ready.
-func FluxStatus(o client.Object, rl apiv1alpha1.ResourceLocation) Status {
+// Status indicates whether the given Flux object is terminating, pending, or ready.
+func Status(o client.Object, rl apiv1alpha1.ResourceLocation) resources.Status {
 	fluxObject := o.(conditions.Getter)
 	if !o.GetDeletionTimestamp().IsZero() {
-		return Status{Phase: apiv1alpha1.Terminating, Message: "Resource is terminating.", Location: rl}
+		return resources.Status{Phase: apiv1alpha1.Terminating, Message: "Resource is terminating.", Location: rl}
 	}
 	if conditions.IsReady(fluxObject) {
-		return Status{Phase: apiv1alpha1.Ready, Message: fluxStatusMessage(fluxObject, "Resource is ready"), Location: rl}
+		return resources.Status{Phase: apiv1alpha1.Ready, Message: fluxStatusMessage(fluxObject, "Resource is ready"), Location: rl}
 	}
-	return Status{Phase: apiv1alpha1.Pending, Message: fluxStatusMessage(fluxObject, "Resource is not ready"), Location: rl}
+	return resources.Status{Phase: apiv1alpha1.Pending, Message: fluxStatusMessage(fluxObject, "Resource is not ready"), Location: rl}
 }
 
 func fluxStatusMessage(fluxObject conditions.Getter, fallback string) string {
