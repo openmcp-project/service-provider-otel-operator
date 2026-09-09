@@ -5,12 +5,11 @@ import (
 	"testing"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/resources"
 )
 
 func TestExtractHelmValues_Nil(t *testing.T) {
@@ -268,11 +267,13 @@ type fakeManagedCluster struct{}
 
 var _ resources.ManagedCluster = &fakeManagedCluster{}
 
-func (f *fakeManagedCluster) AddObject(_ resources.ManagedObject)         {}
-func (f *fakeManagedCluster) GetObjects() []resources.ManagedObject       { return nil }
-func (f *fakeManagedCluster) GetDefaultNamespace() string                 { return "" }
-func (f *fakeManagedCluster) GetHostAndPort() (string, string)            { return "localhost", "6443" }
-func (f *fakeManagedCluster) GetConfig() *rest.Config                     { return nil }
-func (f *fakeManagedCluster) GetClient() client.Client                    { return nil }
-func (f *fakeManagedCluster) GetCluster() *clusters.Cluster               { return nil }
-func (f *fakeManagedCluster) GetClusterType() resources.ClusterType       { return resources.ClusterTypePlatform }
+func (f *fakeManagedCluster) AddObject(_ resources.ManagedObject)   {}
+func (f *fakeManagedCluster) GetObjects() []resources.ManagedObject { return nil }
+func (f *fakeManagedCluster) GetDefaultNamespace() string           { return "" }
+func (f *fakeManagedCluster) GetHostAndPort() (string, string)      { return "localhost", "6443" }
+func (f *fakeManagedCluster) GetConfig() *rest.Config               { return nil }
+func (f *fakeManagedCluster) GetClient() client.Client              { return nil }
+func (f *fakeManagedCluster) GetCluster() *clusters.Cluster         { return nil }
+func (f *fakeManagedCluster) GetClusterType() resources.ClusterType {
+	return resources.ClusterTypePlatform
+}

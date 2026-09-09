@@ -72,7 +72,7 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 		},
 		DependsOn:      []resources.ManagedObject{kubeStackOCIRepo},
 		DeletionPolicy: resources.Delete,
-		StatusFunc:     FluxStatus,
+		StatusFunc:     Status,
 	})
 	p.Cluster.AddObject(crdHelmRelease)
 
@@ -105,7 +105,7 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 		},
 		DependsOn:      []resources.ManagedObject{kubeStackOCIRepo, crdHelmRelease},
 		DeletionPolicy: resources.Delete,
-		StatusFunc:     FluxStatus,
+		StatusFunc:     Status,
 	})
 	p.Cluster.AddObject(workloadHelmRelease)
 }
@@ -142,7 +142,7 @@ func newOCIRepository(name, url, tag string, p ManageFluxResourcesParams) resour
 		},
 		DependsOn:      []resources.ManagedObject{},
 		DeletionPolicy: resources.Delete,
-		StatusFunc:     FluxStatus,
+		StatusFunc:     Status,
 	})
 }
 
@@ -179,8 +179,8 @@ func orphanUninstall() *helmv2.Uninstall {
 	return &helmv2.Uninstall{DeletionPropagation: &policy}
 }
 
-// FluxStatus indicates whether the given Flux object is terminating, pending, or ready.
-func FluxStatus(o client.Object, rl apiv1alpha1.ResourceLocation) resources.Status {
+// Status indicates whether the given Flux object is terminating, pending, or ready.
+func Status(o client.Object, rl apiv1alpha1.ResourceLocation) resources.Status {
 	fluxObject := o.(conditions.Getter)
 	if !o.GetDeletionTimestamp().IsZero() {
 		return resources.Status{Phase: apiv1alpha1.Terminating, Message: "Resource is terminating.", Location: rl}

@@ -52,8 +52,7 @@ import (
 	openmcpconst "github.com/openmcp-project/openmcp-operator/api/constants"
 	providerv1alpha1 "github.com/openmcp-project/openmcp-operator/api/provider/v1alpha1"
 	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
-	libclusteraccess "github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
-	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess/advanced"
+	advancedclusteraccess "github.com/openmcp-project/openmcp-operator/lib/clusteraccess/advanced"
 	"github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	"github.com/openmcp-project/service-provider-otel-operator/api/crds"
@@ -207,7 +206,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	clusterAccessManager := libclusteraccess.NewClusterAccessManager(platformCluster.Client(),
+	clusterAccessManager := clusteraccess.NewClusterAccessManager(platformCluster.Client(),
 		oteloperatorv1alpha1.GroupVersion.Group, podNamespace)
 	clusterAccessManager.WithLogger(&log).
 		WithInterval(10 * time.Second).
@@ -313,7 +312,7 @@ func main() {
 		},
 	}
 
-	cpClusterRequest := advanced.ExistingClusterRequest(clustersv1alpha1.PURPOSE_MCP, "cp", func(req reconcile.Request, _ ...any) (*common.ObjectReference, error) {
+	cpClusterRequest := advancedclusteraccess.ExistingClusterRequest(clustersv1alpha1.PURPOSE_MCP, "cp", func(req reconcile.Request, _ ...any) (*common.ObjectReference, error) {
 		namespace, err := utils.StableMCPNamespace(req.Name, req.Namespace)
 		if err != nil {
 			return nil, err
@@ -323,7 +322,7 @@ func main() {
 			Namespace: namespace,
 		}, nil
 	}).
-		WithNamespaceGenerator(advanced.DefaultNamespaceGeneratorForMCP).
+		WithNamespaceGenerator(advancedclusteraccess.DefaultNamespaceGeneratorForMCP).
 		WithTokenAccess(cpTokenAccessConfig).
 		WithScheme(cpScheme).
 		Build()
@@ -348,22 +347,22 @@ func main() {
 			},
 		},
 	}
-	workloadClusterRequest := advanced.NewClusterRequest(clustersv1alpha1.PURPOSE_WORKLOAD, "wl", advanced.StaticClusterRequestSpecGenerator(&clustersv1alpha1.ClusterRequestSpec{
+	workloadClusterRequest := advancedclusteraccess.NewClusterRequest(clustersv1alpha1.PURPOSE_WORKLOAD, "wl", advancedclusteraccess.StaticClusterRequestSpecGenerator(&clustersv1alpha1.ClusterRequestSpec{
 		Purpose: clustersv1alpha1.PURPOSE_WORKLOAD,
 	})).
-		WithNamespaceGenerator(advanced.DefaultNamespaceGeneratorForMCP).
+		WithNamespaceGenerator(advancedclusteraccess.DefaultNamespaceGeneratorForMCP).
 		WithTokenAccess(workloadTokenAccessConfig).
 		WithScheme(workloadScheme).
 		Build()
 
-	clusterAccessReconciler := advanced.NewClusterAccessReconciler(platformCluster.Client(), providerName)
+	clusterAccessReconciler := advancedclusteraccess.NewClusterAccessReconciler(platformCluster.Client(), providerName)
 	if debugEnabled() {
 		clusterAccessReconciler = localaccess.NewLocalAdvancedClusterAccessReconciler(clusterAccessReconciler, localaccess.WithWorkloadCluster())
 	}
 
 	clusterAccessReconciler.
-		WithManagedLabels(func(controllerName string, req reconcile.Request, reg advanced.ClusterRegistration) (string, string, map[string]string) {
-			_, managedPurpose, _ := advanced.DefaultManagedLabelGenerator(controllerName, req, reg)
+		WithManagedLabels(func(controllerName string, req reconcile.Request, reg advancedclusteraccess.ClusterRegistration) (string, string, map[string]string) {
+			_, managedPurpose, _ := advancedclusteraccess.DefaultManagedLabelGenerator(controllerName, req, reg)
 			return controllerName, managedPurpose, map[string]string{
 				openmcpconst.OnboardingNameLabel:      req.Name,
 				openmcpconst.OnboardingNamespaceLabel: req.Namespace,
