@@ -25,6 +25,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -61,7 +62,8 @@ type OtelOperatorReconciler struct {
 // CreateOrUpdate is called on every add or update event
 func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
-	if err := r.ensureInstanceID(ctx, obj); err != nil {
+	err := r.ensureInstanceID(ctx, obj)
+	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
@@ -94,7 +96,7 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 		return ctrl.Result{}, err
 	}
 	if len(blockingKinds) > 0 {
-		msg := fmt.Sprintf("waiting for user resources to be deleted: %s", joinStrings(blockingKinds))
+		msg := fmt.Sprintf("waiting for user resources to be deleted: %s", strings.Join(blockingKinds, ", "))
 		apimeta.SetStatusCondition(obj.GetConditions(), metav1.Condition{
 			Type:               serviceprovider.ServiceProviderConditionReady,
 			Status:             metav1.ConditionFalse,
@@ -127,21 +129,18 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 }
 
 func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (resources.Manager, error) {
-	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
+	tenantNamespace, ooVersion, helmValues, err := r.prepareInputs(obj, pc)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine tenant namespace: %w", err)
-	}
-	helmValues, err := helm.ExtractHelmValues(pc.Spec.HelmValues)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract helm values: %w", err)
+		return nil, err
 	}
 
-	platformCluster := resources.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, resources.ClusterTypePlatform)
 	otelOperatorNamespace := namespaceOtelOperator
 	if helmValues.NamespaceOverride != "" {
 		otelOperatorNamespace = helmValues.NamespaceOverride
 	}
 	workloadNamespace := instance.Namespace(obj)
+
+	platformCluster := resources.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, resources.ClusterTypePlatform)
 	cpCluster := resources.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, resources.ClusterTypeCP)
 	workloadCluster := resources.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), workloadNamespace, resources.ClusterTypeWorkload)
 
@@ -153,23 +152,14 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		},
 	}
 	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
-
-	workloadHelmValues, err := helm.WorkloadHelmValues(pc.Spec.HelmValues)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set workload helm values: %w", err)
-	}
-	workloadHelmValues, err = helm.AddAuthToHelmValues(workloadHelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
-	if err != nil {
-		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
-	}
-	crdHelmValues, err := helm.CRDHelmValues(pc.Spec.HelmValues)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set CRD helm values: %w", err)
-	}
-
 	authz.Configure(cpCluster, cpServiceAccount)
 
-	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
+	workloadHelmValues, crdHelmValues, err := prepareHelmValues(ooVersion.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare helm values: %w", err)
+	}
+
+	for _, imagePullSecret := range helmValues.ImagePullSecrets {
 		secret.ManagePullSecret(workloadCluster, imagePullSecret, secret.CopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
@@ -179,12 +169,12 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	}
 
 	var prefixedChartPullSecret string
-	if pc.Spec.ChartPullSecret != nil {
-		prefixedChartPullSecret, err = secret.PrefixSecretName(*pc.Spec.ChartPullSecret)
+	if ooVersion.ChartPullSecret != nil {
+		prefixedChartPullSecret, err = secret.PrefixSecretName(*ooVersion.ChartPullSecret)
 		if err != nil {
 			return nil, fmt.Errorf("error generating secret name: %w", err)
 		}
-		secret.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, secret.CopyConfig{
+		secret.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *ooVersion.ChartPullSecret}, secret.CopyConfig{
 			SourceClient:    platformCluster.GetClient(),
 			SourceNamespace: r.PodNamespace,
 			TargetNamespace: tenantNamespace,
@@ -198,7 +188,8 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		WorkloadNamespace:   workloadNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
-		ProviderConfig:      pc,
+		RequestedVersion:    ooVersion,
+		PollInterval:        pc.PollInterval(),
 		WorkloadHelmValues:  workloadHelmValues,
 		CRDHelmValues:       crdHelmValues,
 		ClusterContext:      clusterCtx,
@@ -210,6 +201,47 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	mgr.AddCluster(workloadCluster)
 	mgr.AddCluster(platformCluster)
 	return mgr, nil
+}
+
+func (r *OtelOperatorReconciler) prepareInputs(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig) (string, apiv1alpha1.OtelOperatorVersion, *helm.Values, error) {
+	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
+	if err != nil {
+		return "", apiv1alpha1.OtelOperatorVersion{}, nil, fmt.Errorf("failed to determine tenant namespace: %w", err)
+	}
+	ooVersion, err := selectOtelOperatorVersion(obj.Spec.Version, pc)
+	if err != nil {
+		return "", apiv1alpha1.OtelOperatorVersion{}, nil, fmt.Errorf("failed to select otel-operator version: %w", err)
+	}
+	helmValues, err := helm.ExtractHelmValues(ooVersion.HelmValues)
+	if err != nil {
+		return "", apiv1alpha1.OtelOperatorVersion{}, nil, fmt.Errorf("failed to extract helm values: %w", err)
+	}
+	return tenantNamespace, ooVersion, helmValues, nil
+}
+
+func prepareHelmValues(helmValues *apiextensionsv1.JSON, cpCluster resources.ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, *apiextensionsv1.JSON, error) {
+	workloadHelmValues, err := helm.WorkloadHelmValues(helmValues)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to set workload helm values: %w", err)
+	}
+	workloadHelmValues, err = helm.AddAuthToHelmValues(workloadHelmValues, cpCluster, saSecretName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
+	}
+	crdHelmValues, err := helm.CRDHelmValues(helmValues)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to set CRD helm values: %w", err)
+	}
+	return workloadHelmValues, crdHelmValues, nil
+}
+
+func selectOtelOperatorVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.OtelOperatorVersion, error) {
+	for _, v := range pc.Spec.Versions {
+		if v.Version == requestedVersion {
+			return v, nil
+		}
+	}
+	return apiv1alpha1.OtelOperatorVersion{}, fmt.Errorf("requested version (%s) is not available", requestedVersion)
 }
 
 func resultsToResources(ctx context.Context, results []resources.Result) ([]apiv1alpha1.ManagedResource, bool) {
@@ -265,17 +297,6 @@ func pendingResourcesMessage(resources []apiv1alpha1.ManagedResource) string {
 		return fmt.Sprintf("%s %s/%s is %s: %s", res.Kind, ptr.Deref(res.Namespace, ""), res.Name, res.Phase, message)
 	}
 	return "Reconcile in progress"
-}
-
-func joinStrings(ss []string) string {
-	var b strings.Builder
-	for i, s := range ss {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(s)
-	}
-	return b.String()
 }
 
 func (r *OtelOperatorReconciler) ensureInstanceID(ctx context.Context, obj *apiv1alpha1.OtelOperator) error {

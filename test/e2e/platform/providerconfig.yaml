@@ -4,11 +4,14 @@ metadata:
   name: otel-operator
 spec:
   pollInterval: 1m
-  chartURL: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack
-  helmValues:
-    opentelemetry-operator:
-      admissionWebhooks:
-        certManager:
-          enabled: false
-        autoGenerateCert:
-          enabled: true
+  versions:
+    - version: v0.158.0
+      chartVersion: 0.20.8
+      chartURL: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack
+      helmValues:
+        opentelemetry-operator:
+          admissionWebhooks:
+            certManager:
+              enabled: false
+            autoGenerateCert:
+              enabled: true

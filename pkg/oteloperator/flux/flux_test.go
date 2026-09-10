@@ -28,17 +28,15 @@ const (
 	testOtelNS   = "otel-system"
 )
 
+var (
+	chartURL = "oci://ghcr.io/example/kube-stack-chart"
+)
+
 func TestManageFluxResources_CreatesOneOCIRepositoryAndTwoHelmReleases(t *testing.T) {
 	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.20.1"},
-	}
-	pc := &apiv1alpha1.ProviderConfig{
-		Spec: apiv1alpha1.ProviderConfigSpec{
-			ChartURL:     new(string),
-			PollInterval: &metav1.Duration{Duration: time.Minute},
-		},
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
@@ -46,7 +44,8 @@ func TestManageFluxResources_CreatesOneOCIRepositoryAndTwoHelmReleases(t *testin
 		CPNamespace:        "opentelemetry-operator-system",
 		WorkloadNamespace:  "opentelemetry-operator-system",
 		Obj:                obj,
-		ProviderConfig:     pc,
+		RequestedVersion:   apiv1alpha1.OtelOperatorVersion{ChartVersion: "0.20.1"},
+		PollInterval:       time.Minute,
 		WorkloadHelmValues: mustWorkloadHelmValues(t),
 		CRDHelmValues:      mustCRDHelmValues(t),
 		ClusterContext: clusteraccess.ClusterContext{
@@ -93,13 +92,6 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "1.2.3"},
 	}
-	chartURL := "oci://ghcr.io/example/kube-stack-chart"
-	pc := &apiv1alpha1.ProviderConfig{
-		Spec: apiv1alpha1.ProviderConfigSpec{
-			ChartURL:     &chartURL,
-			PollInterval: &metav1.Duration{Duration: 2 * time.Minute},
-		},
-	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
 		Cluster:             cluster,
@@ -107,7 +99,8 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		WorkloadNamespace:   testOtelNS,
 		ChartPullSecretName: "my-secret",
 		Obj:                 obj,
-		ProviderConfig:      pc,
+		RequestedVersion:    apiv1alpha1.OtelOperatorVersion{ChartVersion: "1.2.3", ChartURL: &chartURL},
+		PollInterval:        2 * time.Minute,
 		WorkloadHelmValues:  mustWorkloadHelmValues(t),
 		CRDHelmValues:       mustCRDHelmValues(t),
 		ClusterContext: clusteraccess.ClusterContext{
@@ -225,14 +218,14 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.1.0"},
 	}
-	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{ChartURL: new(string)}}
 
 	ManageFluxResources(ManageFluxResourcesParams{
 		Cluster:            cluster,
 		CPNamespace:        "ns",
 		WorkloadNamespace:  "ns",
 		Obj:                obj,
-		ProviderConfig:     pc,
+		RequestedVersion:   apiv1alpha1.OtelOperatorVersion{ChartVersion: "0.1.0", ChartURL: &chartURL},
+		PollInterval:       time.Minute,
 		WorkloadHelmValues: mustWorkloadHelmValues(t),
 		CRDHelmValues:      mustCRDHelmValues(t),
 		ClusterContext: clusteraccess.ClusterContext{
@@ -267,14 +260,14 @@ func TestManageFluxResources_WorkloadHelmReleaseHasCPAccessPostRenderer(t *testi
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName},
 		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.20.0"},
 	}
-	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{ChartURL: new(string)}}
 
 	ManageFluxResources(ManageFluxResourcesParams{
 		Cluster:            cluster,
 		CPNamespace:        "ns",
 		WorkloadNamespace:  "ns",
 		Obj:                obj,
-		ProviderConfig:     pc,
+		RequestedVersion:   apiv1alpha1.OtelOperatorVersion{ChartVersion: "0.20.0"},
+		PollInterval:       time.Minute,
 		WorkloadHelmValues: mustWorkloadHelmValues(t),
 		CRDHelmValues:      mustCRDHelmValues(t),
 		SASecretName:       saSecret,
