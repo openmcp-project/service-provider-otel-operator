@@ -187,14 +187,33 @@ func orphanUninstall() *helmv2.Uninstall {
 
 // Status indicates whether the given Flux object is terminating, pending, or ready.
 func Status(o client.Object, rl apiv1alpha1.ResourceLocation) resources.Status {
-	fluxObject := o.(conditions.Getter)
+	fluxObject, ok := o.(conditions.Getter)
+	if !ok {
+		return resources.Status{
+			Phase:    apiv1alpha1.Unknown,
+			Message:  fmt.Sprintf("Object %T does not implement conditions.Getter.", o),
+			Location: rl,
+		}
+	}
 	if !o.GetDeletionTimestamp().IsZero() {
-		return resources.Status{Phase: apiv1alpha1.Terminating, Message: "Resource is terminating.", Location: rl}
+		return resources.Status{
+			Phase:    apiv1alpha1.Terminating,
+			Message:  "Resource is terminating",
+			Location: rl,
+		}
 	}
 	if conditions.IsReady(fluxObject) {
-		return resources.Status{Phase: apiv1alpha1.Ready, Message: fluxStatusMessage(fluxObject, "Resource is ready"), Location: rl}
+		return resources.Status{
+			Phase:    apiv1alpha1.Ready,
+			Message:  fluxStatusMessage(fluxObject, "Resource is ready"),
+			Location: rl,
+		}
 	}
-	return resources.Status{Phase: apiv1alpha1.Pending, Message: fluxStatusMessage(fluxObject, "Resource is not ready"), Location: rl}
+	return resources.Status{
+		Phase:    apiv1alpha1.Pending,
+		Message:  fluxStatusMessage(fluxObject, "Resource is not ready"),
+		Location: rl,
+	}
 }
 
 func fluxStatusMessage(fluxObject conditions.Getter, fallback string) string {
