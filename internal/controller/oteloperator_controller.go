@@ -91,7 +91,7 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 		return ctrl.Result{}, err
 	}
 	if len(blockingKinds) > 0 {
-		msg := fmt.Sprintf("waiting for user resources to be deleted: %s", joinStrings(blockingKinds))
+		msg := fmt.Sprintf("waiting for user resources to be deleted: %s", strings.Join(blockingKinds, ", "))
 		apimeta.SetStatusCondition(obj.GetConditions(), metav1.Condition{
 			Type:               serviceprovider.ServiceProviderConditionReady,
 			Status:             metav1.ConditionFalse,
@@ -296,17 +296,6 @@ func pendingResourcesMessage(resources []apiv1alpha1.ManagedResource) string {
 		return fmt.Sprintf("%s %s/%s is %s: %s", res.Kind, ptr.Deref(res.Namespace, ""), res.Name, res.Phase, message)
 	}
 	return "Reconcile in progress"
-}
-
-func joinStrings(ss []string) string {
-	var b strings.Builder
-	for i, s := range ss {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(s)
-	}
-	return b.String()
 }
 
 func (r *OtelOperatorReconciler) ensureInstanceID(ctx context.Context, obj *apiv1alpha1.OtelOperator) error {

@@ -161,12 +161,6 @@ func TestPendingResourcesMessage(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
-func TestJoinStrings(t *testing.T) {
-	assert.Equal(t, "", joinStrings(nil))
-	assert.Equal(t, "a", joinStrings([]string{"a"}))
-	assert.Equal(t, "a, b, c", joinStrings([]string{"a", "b", "c"}))
-}
-
 // stubCluster returns a cluster with a fake client and no RESTConfig, suitable for tests
 // that need to pass a non-nil PlatformCluster to avoid nil-deref without actually talking to it.
 func stubCluster(t *testing.T, id string) *clusters.Cluster {
