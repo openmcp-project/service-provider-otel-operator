@@ -62,7 +62,12 @@ type OtelOperatorReconciler struct {
 // CreateOrUpdate is called on every add or update event
 func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
-	mgr, err := r.createObjectManager(ctx, obj, pc, clusterCtx)
+	err := r.ensureInstanceID(ctx, obj)
+	if err != nil {
+		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
+		return ctrl.Result{}, err
+	}
+	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
@@ -104,7 +109,7 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 		return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 	}
 	serviceprovider.StatusTerminating(obj)
-	mgr, err := r.createObjectManager(ctx, obj, pc, clusterCtx)
+	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
@@ -123,8 +128,8 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
 
-func (r *OtelOperatorReconciler) createObjectManager(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (resources.Manager, error) {
-	tenantNamespace, ooVersion, helmValues, err := r.prepareInputs(ctx, obj, pc)
+func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (resources.Manager, error) {
+	tenantNamespace, ooVersion, helmValues, err := r.prepareInputs(obj, pc)
 	if err != nil {
 		return nil, err
 	}
@@ -198,14 +203,10 @@ func (r *OtelOperatorReconciler) createObjectManager(ctx context.Context, obj *a
 	return mgr, nil
 }
 
-func (r *OtelOperatorReconciler) prepareInputs(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig) (string, apiv1alpha1.OtelOperatorVersion, *helm.Values, error) {
+func (r *OtelOperatorReconciler) prepareInputs(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig) (string, apiv1alpha1.OtelOperatorVersion, *helm.Values, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return "", apiv1alpha1.OtelOperatorVersion{}, nil, fmt.Errorf("failed to determine tenant namespace: %w", err)
-	}
-	err = r.ensureInstanceID(ctx, obj)
-	if err != nil {
-		return "", apiv1alpha1.OtelOperatorVersion{}, nil, fmt.Errorf("failed to set instance id: %w", err)
 	}
 	ooVersion, err := selectOtelOperatorVersion(obj.Spec.Version, pc)
 	if err != nil {
