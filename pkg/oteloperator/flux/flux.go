@@ -3,6 +3,7 @@ package flux
 import (
 	"context"
 	"fmt"
+	"time"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/apis/kustomize"
@@ -26,7 +27,8 @@ type ManageFluxResourcesParams struct {
 	WorkloadNamespace   string
 	ChartPullSecretName string
 	Obj                 *apiv1alpha1.OtelOperator
-	ProviderConfig      *apiv1alpha1.ProviderConfig
+	RequestedVersion    apiv1alpha1.OtelOperatorVersion
+	PollInterval        time.Duration
 	WorkloadHelmValues  *apiextensionsv1.JSON
 	CRDHelmValues       *apiextensionsv1.JSON
 	ClusterContext      clusteraccess.ClusterContext
@@ -43,7 +45,7 @@ const (
 // ManageFluxResources configures one opentelemetry-kube-stack OCIRepository and two HelmReleases:
 // CRDs to CP, opentelemetry-operator runtime resources to workload.
 func ManageFluxResources(p ManageFluxResourcesParams) {
-	kubeStackOCIRepo := newOCIRepository(p.Obj.Name, p.ProviderConfig.ChartURL(), p.Obj.Spec.Version, p)
+	kubeStackOCIRepo := newOCIRepository(p)
 	p.Cluster.AddObject(kubeStackOCIRepo)
 
 	crdHelmRelease := resources.NewManagedObject(&helmv2.HelmRelease{
@@ -110,10 +112,10 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 	p.Cluster.AddObject(workloadHelmRelease)
 }
 
-func newOCIRepository(name, url, tag string, p ManageFluxResourcesParams) resources.ManagedObject {
+func newOCIRepository(p ManageFluxResourcesParams) resources.ManagedObject {
 	return resources.NewManagedObject(&sourcev1.OCIRepository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      p.Obj.Name,
 			Namespace: p.Cluster.GetDefaultNamespace(),
 		},
 	}, resources.ManagedObjectContext{
@@ -122,16 +124,20 @@ func newOCIRepository(name, url, tag string, p ManageFluxResourcesParams) resour
 			if !ok {
 				return fmt.Errorf("expected *sourcev1.OCIRepository, got %T", o)
 			}
+			if p.RequestedVersion.ChartURL == nil {
+				// this should never happen as long as defaulting works properly
+				return fmt.Errorf("missing ChartURL definition for otel-operator version %s", p.RequestedVersion.Version)
+			}
 			repo.Spec = sourcev1.OCIRepositorySpec{
-				Interval: metav1.Duration{Duration: p.ProviderConfig.PollInterval()},
-				URL:      url,
+				Interval: metav1.Duration{Duration: p.PollInterval},
+				URL:      *p.RequestedVersion.ChartURL,
 				LayerSelector: &sourcev1.OCILayerSelector{
 					MediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip",
 					Operation: "extract",
 				},
 			}
-			if tag != "" {
-				repo.Spec.Reference = &sourcev1.OCIRepositoryRef{Tag: tag}
+			if p.RequestedVersion.ChartVersion != "" {
+				repo.Spec.Reference = &sourcev1.OCIRepositoryRef{Tag: p.RequestedVersion.ChartVersion}
 			}
 			if p.ChartPullSecretName != "" {
 				repo.Spec.SecretRef = &meta.LocalObjectReference{
@@ -148,7 +154,7 @@ func newOCIRepository(name, url, tag string, p ManageFluxResourcesParams) resour
 
 func baseHelmReleaseSpec(p ManageFluxResourcesParams, values *apiextensionsv1.JSON, targetNamespace, chartRefName string) helmv2.HelmReleaseSpec {
 	return helmv2.HelmReleaseSpec{
-		Interval: metav1.Duration{Duration: p.ProviderConfig.PollInterval()},
+		Interval: metav1.Duration{Duration: p.PollInterval},
 		ChartRef: &helmv2.CrossNamespaceSourceReference{
 			Kind:      "OCIRepository",
 			Name:      chartRefName,
