@@ -203,7 +203,7 @@ func TestFluxStatusUsesFluxConditionMessage(t *testing.T) {
 		},
 	}
 
-	status := Status(repo, apiv1alpha1.LocationPlatform)
+	status := Status(repo, apiv1alpha1.PlatformCluster)
 	if status.Phase != apiv1alpha1.Pending {
 		t.Fatalf("FluxStatus phase = %q, want %q", status.Phase, apiv1alpha1.Pending)
 	}

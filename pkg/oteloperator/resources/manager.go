@@ -15,8 +15,14 @@ import (
 
 // Custom operation result constants.
 const (
+	// OperationResultDeletionFailed indicates failed to be deleted
+	OperationResultDeletionFailed controllerutil.OperationResult = "deletionFailed"
+	// OperationResultDeletionRequested indicates that an object has been marked for deletion
 	OperationResultDeletionRequested controllerutil.OperationResult = "deletionRequested"
-	OperationResultDeleted           controllerutil.OperationResult = "deleted"
+	// OperationResultDeleted indicates that an object has been deleted
+	OperationResultDeleted controllerutil.OperationResult = "deleted"
+	// OperationResultOrphaned indicates that an object has been orphaned
+	OperationResultOrphaned controllerutil.OperationResult = OperationResultDeleted
 )
 
 type dependents map[ManagedObject][]dependency
@@ -24,34 +30,46 @@ type dependents map[ManagedObject][]dependency
 // Manager manages the objects of an arbitrary number of clusters.
 type Manager interface {
 	AddCluster(mc ManagedCluster)
-	Apply(context.Context) []Result
-	Delete(context.Context) []Result
+	AddCleaner(oc OrphanCleaner)
+	Apply(context.Context) ([]Result, error)
+	Delete(context.Context) ([]Result, error)
+}
+
+// OrphanCleaner removes any previously managed objects that are no longer part of the desired state.
+type OrphanCleaner interface {
+	Cleanup(ctx context.Context) ([]Result, error)
 }
 
 // NewManager creates a new Manager instance.
 func NewManager() Manager {
 	return &managerImpl{
 		clusters: []ManagedCluster{},
+		cleaners: []OrphanCleaner{},
 	}
 }
 
 type managerImpl struct {
 	clusters []ManagedCluster
+	cleaners []OrphanCleaner
 }
 
 func (m *managerImpl) AddCluster(mc ManagedCluster) {
 	m.clusters = append(m.clusters, mc)
 }
 
-func (m *managerImpl) Apply(ctx context.Context) []Result {
+func (m *managerImpl) AddCleaner(cleaner OrphanCleaner) {
+	m.cleaners = append(m.cleaners, cleaner)
+}
+
+func (m *managerImpl) Apply(ctx context.Context) ([]Result, error) {
 	return m.reconcileObjects(ctx, false)
 }
 
-func (m *managerImpl) Delete(ctx context.Context) []Result {
+func (m *managerImpl) Delete(ctx context.Context) ([]Result, error) {
 	return m.reconcileObjects(ctx, true)
 }
 
-func (m *managerImpl) reconcileObjects(ctx context.Context, isDeletion bool) []Result {
+func (m *managerImpl) reconcileObjects(ctx context.Context, isDeletion bool) ([]Result, error) {
 	deps := m.getDependents()
 	results := []Result{}
 	for _, mc := range m.clusters {
@@ -60,7 +78,15 @@ func (m *managerImpl) reconcileObjects(ctx context.Context, isDeletion bool) []R
 			results = append(results, result)
 		}
 	}
-	return results
+	var cleanerErr error
+	for _, c := range m.cleaners {
+		result, err := c.Cleanup(ctx)
+		results = append(results, result...)
+		if err != nil {
+			cleanerErr = errors.Join(cleanerErr, err)
+		}
+	}
+	return results, cleanerErr
 }
 
 func (m *managerImpl) reconcileObject(ctx context.Context, mc ManagedCluster, mo ManagedObject, deps dependents, isDeletion bool) Result {
@@ -72,7 +98,7 @@ func (m *managerImpl) reconcileObject(ctx context.Context, mc ManagedCluster, mo
 			return Result{Object: mo, Cluster: mc, OperationResult: controllerutil.OperationResultNone, Error: err}
 		}
 		if mo.GetDeletionPolicy() == Orphan {
-			return Result{Object: mo, Cluster: mc, OperationResult: OperationResultDeleted, Error: nil}
+			return Result{Object: mo, Cluster: mc, OperationResult: OperationResultOrphaned, Error: nil}
 		}
 		err := cl.Delete(ctx, obj)
 		if apierrors.IsNotFound(err) {
