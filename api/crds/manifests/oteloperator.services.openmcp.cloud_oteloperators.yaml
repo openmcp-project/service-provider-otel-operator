@@ -49,7 +49,9 @@ spec:
             description: spec defines the desired state of OtelOperator
             properties:
               version:
-                description: Version is the otel-operator version to install.
+                description: |-
+                  Version is the opentelemetry-kube-stack chart version to install. The
+                  opentelemetry-operator version is selected by the chart.
                 type: string
             required:
             - version

@@ -137,6 +137,20 @@ func TestDelete_ProceedsWhenNoOtelCRs(t *testing.T) {
 	assert.Equal(t, float64(0), result.RequeueAfter.Seconds(), "guard must not block when no CRs exist")
 }
 
+func TestSelectKubeStackVersion(t *testing.T) {
+	versions := []apiv1alpha1.KubeStackVersion{{Version: "0.20.7"}, {Version: "0.20.8"}}
+	version, err := selectKubeStackVersion("0.20.8", &apiv1alpha1.ProviderConfig{
+		Spec: apiv1alpha1.ProviderConfigSpec{Versions: versions},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "0.20.8", version.Version)
+
+	_, err = selectKubeStackVersion("v0.158.0", &apiv1alpha1.ProviderConfig{
+		Spec: apiv1alpha1.ProviderConfigSpec{Versions: versions},
+	})
+	require.EqualError(t, err, "requested opentelemetry-kube-stack version (v0.158.0) is not available")
+}
+
 func TestPendingResourcesMessage(t *testing.T) {
 	resources := []apiv1alpha1.ManagedResource{
 		{

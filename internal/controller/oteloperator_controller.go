@@ -136,9 +136,13 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 }
 
 func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (resources.Manager, error) {
-	tenantNamespace, ooVersion, helmValues, err := r.prepareInputs(obj, pc)
+	tenantNamespace, kubeStackVersion, err := r.prepareInputs(obj, pc)
 	if err != nil {
 		return nil, err
+	}
+	helmValues, err := helm.ExtractHelmValues(kubeStackVersion.HelmValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 
 	otelOperatorNamespace := namespaceOtelOperator
@@ -166,14 +170,14 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
 	authz.Configure(cpCluster, cpServiceAccount)
 
-	workloadHelmValues, crdHelmValues, err := prepareHelmValues(ooVersion.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	workloadHelmValues, crdHelmValues, err := prepareHelmValues(kubeStackVersion.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare helm values: %w", err)
 	}
 
 	var chartPullSecret string
-	if ooVersion.ChartPullSecret != nil {
-		chartPullSecret = *ooVersion.ChartPullSecret
+	if kubeStackVersion.ChartPullSecret != nil {
+		chartPullSecret = *kubeStackVersion.ChartPullSecret
 	}
 	prefixedChartPullSecret, chartSecretsToKeep, err := r.syncChartPullSecret(platformCluster, chartPullSecret, tenantNamespace)
 	if err != nil {
@@ -191,7 +195,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		WorkloadNamespace:   workloadNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
-		RequestedVersion:    ooVersion,
+		KubeStackVersion:    kubeStackVersion,
 		PollInterval:        pc.PollInterval(),
 		WorkloadHelmValues:  workloadHelmValues,
 		CRDHelmValues:       crdHelmValues,
@@ -202,20 +206,16 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	return mgr, nil
 }
 
-func (r *OtelOperatorReconciler) prepareInputs(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig) (string, apiv1alpha1.OtelOperatorVersion, *helm.Values, error) {
+func (r *OtelOperatorReconciler) prepareInputs(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig) (string, apiv1alpha1.KubeStackVersion, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
-		return "", apiv1alpha1.OtelOperatorVersion{}, nil, fmt.Errorf("failed to determine tenant namespace: %w", err)
+		return "", apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to determine tenant namespace: %w", err)
 	}
-	ooVersion, err := selectOtelOperatorVersion(obj.Spec.Version, pc)
+	kubeStackVersion, err := selectKubeStackVersion(obj.Spec.Version, pc)
 	if err != nil {
-		return "", apiv1alpha1.OtelOperatorVersion{}, nil, fmt.Errorf("failed to select otel-operator version: %w", err)
+		return "", apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to select opentelemetry-kube-stack version: %w", err)
 	}
-	helmValues, err := helm.ExtractHelmValues(ooVersion.HelmValues)
-	if err != nil {
-		return "", apiv1alpha1.OtelOperatorVersion{}, nil, fmt.Errorf("failed to extract helm values: %w", err)
-	}
-	return tenantNamespace, ooVersion, helmValues, nil
+	return tenantNamespace, kubeStackVersion, nil
 }
 
 func prepareHelmValues(helmValues *apiextensionsv1.JSON, cpCluster resources.ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, *apiextensionsv1.JSON, error) {
@@ -262,13 +262,13 @@ func (r *OtelOperatorReconciler) syncChartPullSecret(platformCluster resources.M
 	return prefixedName, []corev1.LocalObjectReference{{Name: prefixedName}}, nil
 }
 
-func selectOtelOperatorVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.OtelOperatorVersion, error) {
+func selectKubeStackVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.KubeStackVersion, error) {
 	for _, v := range pc.Spec.Versions {
 		if v.Version == requestedVersion {
 			return v, nil
 		}
 	}
-	return apiv1alpha1.OtelOperatorVersion{}, fmt.Errorf("requested version (%s) is not available", requestedVersion)
+	return apiv1alpha1.KubeStackVersion{}, fmt.Errorf("requested opentelemetry-kube-stack version (%s) is not available", requestedVersion)
 }
 
 func resultsToResources(ctx context.Context, results []resources.Result) ([]apiv1alpha1.ManagedResource, bool) {

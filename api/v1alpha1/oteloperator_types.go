@@ -44,7 +44,8 @@ const (
 
 // OtelOperatorSpec defines the desired state of OtelOperator
 type OtelOperatorSpec struct {
-	// Version is the otel-operator version to install.
+	// Version is the opentelemetry-kube-stack chart version to install. The
+	// opentelemetry-operator version is selected by the chart.
 	Version string `json:"version"`
 }
 

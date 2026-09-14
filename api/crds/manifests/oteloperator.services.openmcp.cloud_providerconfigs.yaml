@@ -48,10 +48,11 @@ spec:
                 format: duration
                 type: string
               versions:
-                description: Versions specify the valid inputs for OtelOperator.Spec.Version.
+                description: Versions specify the opentelemetry-kube-stack versions
+                  available to OtelOperator instances.
                 items:
-                  description: OtelOperatorVersion defines a version of otel-operator
-                    that can be installed.
+                  description: KubeStackVersion defines an opentelemetry-kube-stack
+                    version that can be installed.
                   properties:
                     chartPullSecret:
                       description: |-
@@ -62,21 +63,18 @@ spec:
                       default: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack
                       description: |-
                         ChartURL is a reference to an OCI artifact repository that hosts the opentelemetry-kube-stack Helm chart.
-                        The provider uses this chart for both the CP CRD release and workload operator release.
-                      type: string
-                    chartVersion:
-                      description: ChartVersion is the version of the Helm chart to
-                        install.
+                        The provider uses this chart for both the CP CRD release and workload operator-only release.
                       type: string
                     helmValues:
                       description: HelmValues are arbitrary Helm values passed directly
                         to the managed HelmRelease.
                       x-kubernetes-preserve-unknown-fields: true
                     version:
-                      description: Version is the otel-operator version to install.
+                      description: |-
+                        Version is the opentelemetry-kube-stack chart version to install. The
+                        opentelemetry-operator version is determined by this chart version.
                       type: string
                   required:
-                  - chartVersion
                   - version
                   type: object
                 minItems: 1

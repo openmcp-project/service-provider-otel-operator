@@ -27,7 +27,7 @@ type ManageFluxResourcesParams struct {
 	WorkloadNamespace   string
 	ChartPullSecretName string
 	Obj                 *apiv1alpha1.OtelOperator
-	RequestedVersion    apiv1alpha1.OtelOperatorVersion
+	KubeStackVersion    apiv1alpha1.KubeStackVersion
 	PollInterval        time.Duration
 	WorkloadHelmValues  *apiextensionsv1.JSON
 	CRDHelmValues       *apiextensionsv1.JSON
@@ -124,21 +124,19 @@ func newOCIRepository(p ManageFluxResourcesParams) resources.ManagedObject {
 			if !ok {
 				return fmt.Errorf("expected *sourcev1.OCIRepository, got %T", o)
 			}
-			if p.RequestedVersion.ChartURL == nil {
+			if p.KubeStackVersion.ChartURL == nil {
 				// this should never happen as long as defaulting works properly
-				return fmt.Errorf("missing ChartURL definition for otel-operator version %s", p.RequestedVersion.Version)
+				return fmt.Errorf("missing ChartURL definition for opentelemetry-kube-stack version %s", p.KubeStackVersion.Version)
 			}
 			repo.Spec = sourcev1.OCIRepositorySpec{
 				Interval: metav1.Duration{Duration: p.PollInterval},
-				URL:      *p.RequestedVersion.ChartURL,
+				URL:      *p.KubeStackVersion.ChartURL,
 				LayerSelector: &sourcev1.OCILayerSelector{
 					MediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip",
 					Operation: "extract",
 				},
 			}
-			if p.RequestedVersion.ChartVersion != "" {
-				repo.Spec.Reference = &sourcev1.OCIRepositoryRef{Tag: p.RequestedVersion.ChartVersion}
-			}
+			repo.Spec.Reference = &sourcev1.OCIRepositoryRef{Tag: p.KubeStackVersion.Version}
 			if p.ChartPullSecretName != "" {
 				repo.Spec.SecretRef = &meta.LocalObjectReference{
 					Name: p.ChartPullSecretName,

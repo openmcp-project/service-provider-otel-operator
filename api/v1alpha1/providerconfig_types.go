@@ -25,12 +25,12 @@ import (
 
 // ProviderConfigSpec defines the desired state of ProviderConfig
 type ProviderConfigSpec struct {
-	// Versions specify the valid inputs for OtelOperator.Spec.Version.
+	// Versions specify the opentelemetry-kube-stack versions available to OtelOperator instances.
 	// +required
 	// +kubebuilder:validation:MinItems=1
 	// +listType=map
 	// +listMapKey=version
-	Versions []OtelOperatorVersion `json:"versions"`
+	Versions []KubeStackVersion `json:"versions"`
 
 	// PollInterval at which the controller requeues to detect drift
 	// +optional
@@ -39,18 +39,15 @@ type ProviderConfigSpec struct {
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
 }
 
-// OtelOperatorVersion defines a version of otel-operator that can be installed.
-type OtelOperatorVersion struct {
-	// Version is the otel-operator version to install.
+// KubeStackVersion defines an opentelemetry-kube-stack version that can be installed.
+type KubeStackVersion struct {
+	// Version is the opentelemetry-kube-stack chart version to install. The
+	// opentelemetry-operator version is determined by this chart version.
 	// +required
 	Version string `json:"version"`
 
-	// ChartVersion is the version of the Helm chart to install.
-	// +required
-	ChartVersion string `json:"chartVersion"`
-
 	// ChartURL is a reference to an OCI artifact repository that hosts the opentelemetry-kube-stack Helm chart.
-	// The provider uses this chart for both the CP CRD release and workload operator release.
+	// The provider uses this chart for both the CP CRD release and workload operator-only release.
 	// +optional
 	// +kubebuilder:default="oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
 	ChartURL *string `json:"chartURL,omitempty"`
