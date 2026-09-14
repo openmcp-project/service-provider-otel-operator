@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,18 +73,21 @@ func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1a
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	results := mgr.Apply(ctx)
+	results, cleanerErr := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
+	if resultContainsErrors || cleanerErr != nil {
+		resultWithErrors := errors.New("resources contain reconcile errors")
+		if cleanerErr != nil {
+			resultWithErrors = fmt.Errorf("resources contain reconcile errors: %w", cleanerErr)
+		}
+		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		return ctrl.Result{}, resultWithErrors
+	}
 	if allResourcesReady(managedResources) {
 		serviceprovider.StatusReady(obj)
 	} else {
 		serviceprovider.StatusProgressing(obj, "Reconciling", pendingResourcesMessage(managedResources))
-	}
-	if resultContainsErrors {
-		resultWithErrors := errors.New("resources contain reconcile errors")
-		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
-		return ctrl.Result{}, resultWithErrors
 	}
 	return ctrl.Result{}, nil
 }
@@ -114,16 +118,19 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	results := mgr.Delete(ctx)
+	results, cleanerErr := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
-	if resources.AllDeleted(results) {
-		return ctrl.Result{}, nil
-	}
-	if resultContainsErrors {
+	if resultContainsErrors || cleanerErr != nil {
 		resultWithErrors := errors.New("resources contain reconcile errors")
+		if cleanerErr != nil {
+			resultWithErrors = fmt.Errorf("resources contain reconcile errors: %w", cleanerErr)
+		}
 		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
 		return ctrl.Result{}, resultWithErrors
+	}
+	if resources.AllDeleted(results) {
+		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
@@ -144,6 +151,11 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	cpCluster := resources.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, resources.ClusterTypeCP)
 	workloadCluster := resources.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), workloadNamespace, resources.ClusterTypeWorkload)
 
+	mgr := resources.NewManager()
+	mgr.AddCluster(cpCluster)
+	mgr.AddCluster(workloadCluster)
+	mgr.AddCluster(platformCluster)
+
 	// ServiceAccount on CP + token Secret on workload so otel-operator connects to CP API.
 	cpServiceAccount := &authn.ManagedServiceAccount{
 		NamespacedName: k8stypes.NamespacedName{
@@ -159,28 +171,19 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		return nil, fmt.Errorf("failed to prepare helm values: %w", err)
 	}
 
-	for _, imagePullSecret := range helmValues.ImagePullSecrets {
-		secret.ManagePullSecret(workloadCluster, imagePullSecret, secret.CopyConfig{
-			SourceClient:    platformCluster.GetClient(),
-			SourceNamespace: r.PodNamespace,
-			TargetNamespace: otelOperatorNamespace,
-			TargetName:      imagePullSecret.Name,
-		})
+	var chartPullSecret string
+	if ooVersion.ChartPullSecret != nil {
+		chartPullSecret = *ooVersion.ChartPullSecret
+	}
+	prefixedChartPullSecret, chartSecretsToKeep, err := r.syncChartPullSecret(platformCluster, chartPullSecret, tenantNamespace)
+	if err != nil {
+		return nil, err
 	}
 
-	var prefixedChartPullSecret string
-	if ooVersion.ChartPullSecret != nil {
-		prefixedChartPullSecret, err = secret.PrefixSecretName(*ooVersion.ChartPullSecret)
-		if err != nil {
-			return nil, fmt.Errorf("error generating secret name: %w", err)
-		}
-		secret.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *ooVersion.ChartPullSecret}, secret.CopyConfig{
-			SourceClient:    platformCluster.GetClient(),
-			SourceNamespace: r.PodNamespace,
-			TargetNamespace: tenantNamespace,
-			TargetName:      prefixedChartPullSecret,
-		})
-	}
+	imagePullSecretsToKeep := r.syncImagePullSecrets(workloadCluster, obj, helmValues)
+
+	mgr.AddCleaner(secret.NewSecretCleaner(workloadCluster, instance.Namespace(obj), append(slices.Clone(imagePullSecretsToKeep), corev1.LocalObjectReference{Name: cpServiceAccount.KubeAPIAccess()})))
+	mgr.AddCleaner(secret.NewSecretCleaner(platformCluster, tenantNamespace, chartSecretsToKeep))
 
 	flux.ManageFluxResources(flux.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
@@ -196,10 +199,6 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		SASecretName:        cpServiceAccount.KubeAPIAccess(),
 	})
 
-	mgr := resources.NewManager()
-	mgr.AddCluster(cpCluster)
-	mgr.AddCluster(workloadCluster)
-	mgr.AddCluster(platformCluster)
 	return mgr, nil
 }
 
@@ -233,6 +232,34 @@ func prepareHelmValues(helmValues *apiextensionsv1.JSON, cpCluster resources.Man
 		return nil, nil, fmt.Errorf("failed to set CRD helm values: %w", err)
 	}
 	return workloadHelmValues, crdHelmValues, nil
+}
+
+func (r *OtelOperatorReconciler) syncImagePullSecrets(workloadCluster resources.ManagedCluster, obj *apiv1alpha1.OtelOperator, helmValues *helm.Values) []corev1.LocalObjectReference {
+	secret.ManageSecrets(workloadCluster, helmValues.ImagePullSecrets, secret.CopyConfig{
+		SourceClient:    r.PlatformCluster.Client(),
+		SourceNamespace: r.PodNamespace,
+		TargetNamespace: instance.Namespace(obj),
+	})
+	return helmValues.ImagePullSecrets
+}
+
+func (r *OtelOperatorReconciler) syncChartPullSecret(platformCluster resources.ManagedCluster, chartPullSecret, tenantNamespace string) (string, []corev1.LocalObjectReference, error) {
+	if chartPullSecret == "" {
+		return "", nil, nil
+	}
+	prefixedName, err := secret.PrefixSecretName(chartPullSecret)
+	if err != nil {
+		return "", nil, fmt.Errorf("error generating secret name: %w", err)
+	}
+	secret.ManageSecrets(platformCluster, []corev1.LocalObjectReference{
+		{Name: chartPullSecret},
+	}, secret.CopyConfig{
+		SourceClient:    r.PlatformCluster.Client(),
+		SourceNamespace: r.PodNamespace,
+		TargetNamespace: tenantNamespace,
+		TargetName:      prefixedName,
+	})
+	return prefixedName, []corev1.LocalObjectReference{{Name: prefixedName}}, nil
 }
 
 func selectOtelOperatorVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.OtelOperatorVersion, error) {

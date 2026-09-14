@@ -28,7 +28,7 @@ type InstancePhase string
 // ResourceLocation is a custom type representing the location of a resource.
 type ResourceLocation string
 
-// InstancePhase values.
+// Constants representing the phases of an instance lifecycle.
 const (
 	Pending     InstancePhase = "Pending"
 	Progressing InstancePhase = "Progressing"
@@ -37,8 +37,9 @@ const (
 	Terminating InstancePhase = "Terminating"
 	Unknown     InstancePhase = "Unknown"
 
-	ControlPlane     ResourceLocation = "ControlPlane"
-	LocationPlatform ResourceLocation = "PlatformCluster"
+	ControlPlane    ResourceLocation = "ControlPlane"
+	PlatformCluster ResourceLocation = "PlatformCluster"
+	WorkloadCluster ResourceLocation = "WorkloadCluster"
 )
 
 // OtelOperatorSpec defines the desired state of OtelOperator
