@@ -104,15 +104,17 @@ metadata:
   name: otel-operator
 spec:
   pollInterval: 1m
-  chartURL: "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
-  chartPullSecret: my-registry-secret
-  helmValues:
-    opentelemetry-operator:
-      admissionWebhooks:
-        certManager:
-          enabled: false
-        autoGenerateCert:
-          enabled: true
+  versions:
+    - version: "0.20.8"
+      chartURL: "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
+      chartPullSecret: my-registry-secret
+      helmValues:
+        opentelemetry-operator:
+          admissionWebhooks:
+            certManager:
+              enabled: false
+            autoGenerateCert:
+              enabled: true
 ```
 
 ## Project Structure

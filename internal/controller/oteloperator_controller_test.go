@@ -137,6 +137,20 @@ func TestDelete_ProceedsWhenNoOtelCRs(t *testing.T) {
 	assert.Equal(t, float64(0), result.RequeueAfter.Seconds(), "guard must not block when no CRs exist")
 }
 
+func TestSelectKubeStackVersion(t *testing.T) {
+	versions := []apiv1alpha1.KubeStackVersion{{Version: "0.20.7"}, {Version: "0.20.8"}}
+	version, err := selectKubeStackVersion("0.20.8", &apiv1alpha1.ProviderConfig{
+		Spec: apiv1alpha1.ProviderConfigSpec{Versions: versions},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "0.20.8", version.Version)
+
+	_, err = selectKubeStackVersion("v0.158.0", &apiv1alpha1.ProviderConfig{
+		Spec: apiv1alpha1.ProviderConfigSpec{Versions: versions},
+	})
+	require.EqualError(t, err, "requested opentelemetry-kube-stack version (v0.158.0) is not available")
+}
+
 func TestPendingResourcesMessage(t *testing.T) {
 	resources := []apiv1alpha1.ManagedResource{
 		{
@@ -159,12 +173,6 @@ func TestPendingResourcesMessage(t *testing.T) {
 	got := pendingResourcesMessage(resources)
 	want := "HelmRelease tenant/test-mcp is Pending: install retries exhausted"
 	assert.Equal(t, want, got)
-}
-
-func TestJoinStrings(t *testing.T) {
-	assert.Equal(t, "", joinStrings(nil))
-	assert.Equal(t, "a", joinStrings([]string{"a"}))
-	assert.Equal(t, "a, b, c", joinStrings([]string{"a", "b", "c"}))
 }
 
 // stubCluster returns a cluster with a fake client and no RESTConfig, suitable for tests
