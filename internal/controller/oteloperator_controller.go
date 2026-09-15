@@ -21,10 +21,12 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -61,7 +63,8 @@ type OtelOperatorReconciler struct {
 // CreateOrUpdate is called on every add or update event
 func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (ctrl.Result, error) {
 	serviceprovider.StatusProgressing(obj, "Reconciling", "Reconcile in progress")
-	if err := r.ensureInstanceID(ctx, obj); err != nil {
+	err := r.ensureInstanceID(ctx, obj)
+	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
@@ -70,18 +73,21 @@ func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1a
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	results := mgr.Apply(ctx)
+	results, cleanerErr := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
+	if resultContainsErrors || cleanerErr != nil {
+		resultWithErrors := errors.New("resources contain reconcile errors")
+		if cleanerErr != nil {
+			resultWithErrors = fmt.Errorf("resources contain reconcile errors: %w", cleanerErr)
+		}
+		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
+		return ctrl.Result{}, resultWithErrors
+	}
 	if allResourcesReady(managedResources) {
 		serviceprovider.StatusReady(obj)
 	} else {
 		serviceprovider.StatusProgressing(obj, "Reconciling", pendingResourcesMessage(managedResources))
-	}
-	if resultContainsErrors {
-		resultWithErrors := errors.New("resources contain reconcile errors")
-		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
-		return ctrl.Result{}, resultWithErrors
 	}
 	return ctrl.Result{}, nil
 }
@@ -94,7 +100,7 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 		return ctrl.Result{}, err
 	}
 	if len(blockingKinds) > 0 {
-		msg := fmt.Sprintf("waiting for user resources to be deleted: %s", joinStrings(blockingKinds))
+		msg := fmt.Sprintf("waiting for user resources to be deleted: %s", strings.Join(blockingKinds, ", "))
 		apimeta.SetStatusCondition(obj.GetConditions(), metav1.Condition{
 			Type:               serviceprovider.ServiceProviderConditionReady,
 			Status:             metav1.ConditionFalse,
@@ -112,38 +118,47 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	results := mgr.Delete(ctx)
+	results, cleanerErr := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
 	obj.Status.Resources = managedResources
-	if resources.AllDeleted(results) {
-		return ctrl.Result{}, nil
-	}
-	if resultContainsErrors {
+	if resultContainsErrors || cleanerErr != nil {
 		resultWithErrors := errors.New("resources contain reconcile errors")
+		if cleanerErr != nil {
+			resultWithErrors = fmt.Errorf("resources contain reconcile errors: %w", cleanerErr)
+		}
 		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
 		return ctrl.Result{}, resultWithErrors
+	}
+	if resources.AllDeleted(results) {
+		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
 
 func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (resources.Manager, error) {
-	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
+	tenantNamespace, kubeStackVersion, err := r.prepareInputs(obj, pc)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine tenant namespace: %w", err)
+		return nil, err
 	}
-	helmValues, err := helm.ExtractHelmValues(pc.Spec.HelmValues)
+	helmValues, err := helm.ExtractHelmValues(kubeStackVersion.HelmValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 
-	platformCluster := resources.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, resources.ClusterTypePlatform)
 	otelOperatorNamespace := namespaceOtelOperator
 	if helmValues.NamespaceOverride != "" {
 		otelOperatorNamespace = helmValues.NamespaceOverride
 	}
 	workloadNamespace := instance.Namespace(obj)
+
+	platformCluster := resources.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, resources.ClusterTypePlatform)
 	cpCluster := resources.NewManagedCluster(clusterCtx.MCPCluster, clusterCtx.MCPCluster.RESTConfig(), otelOperatorNamespace, resources.ClusterTypeCP)
 	workloadCluster := resources.NewManagedCluster(clusterCtx.WorkloadCluster, clusterCtx.WorkloadCluster.RESTConfig(), workloadNamespace, resources.ClusterTypeWorkload)
+
+	mgr := resources.NewManager()
+	mgr.AddCluster(cpCluster)
+	mgr.AddCluster(workloadCluster)
+	mgr.AddCluster(platformCluster)
 
 	// ServiceAccount on CP + token Secret on workload so otel-operator connects to CP API.
 	cpServiceAccount := &authn.ManagedServiceAccount{
@@ -153,44 +168,26 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		},
 	}
 	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
-
-	workloadHelmValues, err := helm.WorkloadHelmValues(pc.Spec.HelmValues)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set workload helm values: %w", err)
-	}
-	workloadHelmValues, err = helm.AddAuthToHelmValues(workloadHelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
-	if err != nil {
-		return nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
-	}
-	crdHelmValues, err := helm.CRDHelmValues(pc.Spec.HelmValues)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set CRD helm values: %w", err)
-	}
-
 	authz.Configure(cpCluster, cpServiceAccount)
 
-	for _, imagePullSecret := range helmValues.Global.ImagePullSecrets {
-		secret.ManagePullSecret(workloadCluster, imagePullSecret, secret.CopyConfig{
-			SourceClient:    platformCluster.GetClient(),
-			SourceNamespace: r.PodNamespace,
-			TargetNamespace: otelOperatorNamespace,
-			TargetName:      imagePullSecret.Name,
-		})
+	workloadHelmValues, crdHelmValues, err := prepareHelmValues(kubeStackVersion.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare helm values: %w", err)
 	}
 
-	var prefixedChartPullSecret string
-	if pc.Spec.ChartPullSecret != nil {
-		prefixedChartPullSecret, err = secret.PrefixSecretName(*pc.Spec.ChartPullSecret)
-		if err != nil {
-			return nil, fmt.Errorf("error generating secret name: %w", err)
-		}
-		secret.ManagePullSecret(platformCluster, corev1.LocalObjectReference{Name: *pc.Spec.ChartPullSecret}, secret.CopyConfig{
-			SourceClient:    platformCluster.GetClient(),
-			SourceNamespace: r.PodNamespace,
-			TargetNamespace: tenantNamespace,
-			TargetName:      prefixedChartPullSecret,
-		})
+	var chartPullSecret string
+	if kubeStackVersion.ChartPullSecret != nil {
+		chartPullSecret = *kubeStackVersion.ChartPullSecret
 	}
+	prefixedChartPullSecret, chartSecretsToKeep, err := r.syncChartPullSecret(platformCluster, chartPullSecret, tenantNamespace)
+	if err != nil {
+		return nil, err
+	}
+
+	imagePullSecretsToKeep := r.syncImagePullSecrets(workloadCluster, obj, helmValues)
+
+	mgr.AddCleaner(secret.NewSecretCleaner(workloadCluster, instance.Namespace(obj), append(slices.Clone(imagePullSecretsToKeep), corev1.LocalObjectReference{Name: cpServiceAccount.KubeAPIAccess()})))
+	mgr.AddCleaner(secret.NewSecretCleaner(platformCluster, tenantNamespace, chartSecretsToKeep))
 
 	flux.ManageFluxResources(flux.ManageFluxResourcesParams{
 		Cluster:             platformCluster,
@@ -198,18 +195,80 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		WorkloadNamespace:   workloadNamespace,
 		ChartPullSecretName: prefixedChartPullSecret,
 		Obj:                 obj,
-		ProviderConfig:      pc,
+		KubeStackVersion:    kubeStackVersion,
+		PollInterval:        pc.PollInterval(),
 		WorkloadHelmValues:  workloadHelmValues,
 		CRDHelmValues:       crdHelmValues,
 		ClusterContext:      clusterCtx,
 		SASecretName:        cpServiceAccount.KubeAPIAccess(),
 	})
 
-	mgr := resources.NewManager()
-	mgr.AddCluster(cpCluster)
-	mgr.AddCluster(workloadCluster)
-	mgr.AddCluster(platformCluster)
 	return mgr, nil
+}
+
+func (r *OtelOperatorReconciler) prepareInputs(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig) (string, apiv1alpha1.KubeStackVersion, error) {
+	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
+	if err != nil {
+		return "", apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to determine tenant namespace: %w", err)
+	}
+	kubeStackVersion, err := selectKubeStackVersion(obj.Spec.Version, pc)
+	if err != nil {
+		return "", apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to select opentelemetry-kube-stack version: %w", err)
+	}
+	return tenantNamespace, kubeStackVersion, nil
+}
+
+func prepareHelmValues(helmValues *apiextensionsv1.JSON, cpCluster resources.ManagedCluster, saSecretName string) (*apiextensionsv1.JSON, *apiextensionsv1.JSON, error) {
+	workloadHelmValues, err := helm.WorkloadHelmValues(helmValues)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to set workload helm values: %w", err)
+	}
+	workloadHelmValues, err = helm.AddAuthToHelmValues(workloadHelmValues, cpCluster, saSecretName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to inject CP auth into helm values: %w", err)
+	}
+	crdHelmValues, err := helm.CRDHelmValues(helmValues)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to set CRD helm values: %w", err)
+	}
+	return workloadHelmValues, crdHelmValues, nil
+}
+
+func (r *OtelOperatorReconciler) syncImagePullSecrets(workloadCluster resources.ManagedCluster, obj *apiv1alpha1.OtelOperator, helmValues *helm.Values) []corev1.LocalObjectReference {
+	secret.ManageSecrets(workloadCluster, helmValues.ImagePullSecrets, secret.CopyConfig{
+		SourceClient:    r.PlatformCluster.Client(),
+		SourceNamespace: r.PodNamespace,
+		TargetNamespace: instance.Namespace(obj),
+	})
+	return helmValues.ImagePullSecrets
+}
+
+func (r *OtelOperatorReconciler) syncChartPullSecret(platformCluster resources.ManagedCluster, chartPullSecret, tenantNamespace string) (string, []corev1.LocalObjectReference, error) {
+	if chartPullSecret == "" {
+		return "", nil, nil
+	}
+	prefixedName, err := secret.PrefixSecretName(chartPullSecret)
+	if err != nil {
+		return "", nil, fmt.Errorf("error generating secret name: %w", err)
+	}
+	secret.ManageSecrets(platformCluster, []corev1.LocalObjectReference{
+		{Name: chartPullSecret},
+	}, secret.CopyConfig{
+		SourceClient:    r.PlatformCluster.Client(),
+		SourceNamespace: r.PodNamespace,
+		TargetNamespace: tenantNamespace,
+		TargetName:      prefixedName,
+	})
+	return prefixedName, []corev1.LocalObjectReference{{Name: prefixedName}}, nil
+}
+
+func selectKubeStackVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.KubeStackVersion, error) {
+	for _, v := range pc.Spec.Versions {
+		if v.Version == requestedVersion {
+			return v, nil
+		}
+	}
+	return apiv1alpha1.KubeStackVersion{}, fmt.Errorf("requested opentelemetry-kube-stack version (%s) is not available", requestedVersion)
 }
 
 func resultsToResources(ctx context.Context, results []resources.Result) ([]apiv1alpha1.ManagedResource, bool) {
@@ -265,17 +324,6 @@ func pendingResourcesMessage(resources []apiv1alpha1.ManagedResource) string {
 		return fmt.Sprintf("%s %s/%s is %s: %s", res.Kind, ptr.Deref(res.Namespace, ""), res.Name, res.Phase, message)
 	}
 	return "Reconcile in progress"
-}
-
-func joinStrings(ss []string) string {
-	var b strings.Builder
-	for i, s := range ss {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(s)
-	}
-	return b.String()
 }
 
 func (r *OtelOperatorReconciler) ensureInstanceID(ctx context.Context, obj *apiv1alpha1.OtelOperator) error {

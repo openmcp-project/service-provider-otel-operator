@@ -2,5 +2,16 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>openmcp-project/.github:renovate-config"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/pkg/oteloperator/flux/kube_stack_contract_test\\.go/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+) extractVersion=(?<extractVersion>[^\\s]+)\\s+const kubeStackContractVersion = \\\"(?<currentValue>[^\\\"]+)\\\""
+      ]
+    }
   ]
 }

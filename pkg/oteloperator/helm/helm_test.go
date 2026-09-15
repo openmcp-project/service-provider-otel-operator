@@ -21,8 +21,8 @@ func TestExtractHelmValues_Nil(t *testing.T) {
 	if vals.NamespaceOverride != "" {
 		t.Errorf("expected empty NamespaceOverride, got %q", vals.NamespaceOverride)
 	}
-	if len(vals.Global.ImagePullSecrets) != 0 {
-		t.Errorf("expected no image pull secrets, got %d", len(vals.Global.ImagePullSecrets))
+	if len(vals.ImagePullSecrets) != 0 {
+		t.Errorf("expected no image pull secrets, got %d", len(vals.ImagePullSecrets))
 	}
 }
 
@@ -48,16 +48,16 @@ func TestExtractHelmValues_NamespaceOverride(t *testing.T) {
 }
 
 func TestExtractHelmValues_ImagePullSecrets(t *testing.T) {
-	raw := []byte(`{"global":{"imagePullSecrets":[{"name":"regcred"},{"name":"other"}]}}`)
+	raw := []byte(`{"imagePullSecrets":[{"name":"regcred"},{"name":"other"}]}`)
 	vals, err := ExtractHelmValues(&apiextensionsv1.JSON{Raw: raw})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(vals.Global.ImagePullSecrets) != 2 {
-		t.Fatalf("expected 2 image pull secrets, got %d", len(vals.Global.ImagePullSecrets))
+	if len(vals.ImagePullSecrets) != 2 {
+		t.Fatalf("expected 2 image pull secrets, got %d", len(vals.ImagePullSecrets))
 	}
 	expected := []corev1.LocalObjectReference{{Name: "regcred"}, {Name: "other"}}
-	for i, s := range vals.Global.ImagePullSecrets {
+	for i, s := range vals.ImagePullSecrets {
 		if s.Name != expected[i].Name {
 			t.Errorf("secret[%d]: expected name %q, got %q", i, expected[i].Name, s.Name)
 		}

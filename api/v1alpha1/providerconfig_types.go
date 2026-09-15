@@ -25,8 +25,29 @@ import (
 
 // ProviderConfigSpec defines the desired state of ProviderConfig
 type ProviderConfigSpec struct {
+	// Versions specify the opentelemetry-kube-stack versions available to OtelOperator instances.
+	// +required
+	// +kubebuilder:validation:MinItems=1
+	// +listType=map
+	// +listMapKey=version
+	Versions []KubeStackVersion `json:"versions"`
+
+	// PollInterval at which the controller requeues to detect drift
+	// +optional
+	// +kubebuilder:default:="1m"
+	// +kubebuilder:validation:Format=duration
+	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
+}
+
+// KubeStackVersion defines an opentelemetry-kube-stack version that can be installed.
+type KubeStackVersion struct {
+	// Version is the opentelemetry-kube-stack chart version to install. The
+	// opentelemetry-operator version is determined by this chart version.
+	// +required
+	Version string `json:"version"`
+
 	// ChartURL is a reference to an OCI artifact repository that hosts the opentelemetry-kube-stack Helm chart.
-	// The provider uses this chart for both the CP CRD release and workload operator release.
+	// The provider uses this chart for both the CP CRD release and workload operator-only release.
 	// +optional
 	// +kubebuilder:default="oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
 	ChartURL *string `json:"chartURL,omitempty"`
@@ -35,12 +56,6 @@ type ProviderConfigSpec struct {
 	// The secret must be of type kubernetes.io/dockerconfigjson.
 	// +optional
 	ChartPullSecret *string `json:"chartPullSecret,omitempty"`
-
-	// PollInterval at which the controller requeues to detect drift
-	// +optional
-	// +kubebuilder:default:="1m"
-	// +kubebuilder:validation:Format=duration
-	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
 
 	// HelmValues are arbitrary Helm values passed directly to the managed HelmRelease.
 	// +optional
@@ -92,12 +107,4 @@ func (o *ProviderConfig) PollInterval() time.Duration {
 		return time.Minute
 	}
 	return o.Spec.PollInterval.Duration
-}
-
-// ChartURL returns the opentelemetry-kube-stack chart URL used for both CRD and workload installation.
-func (o *ProviderConfig) ChartURL() string {
-	if o.Spec.ChartURL == nil || *o.Spec.ChartURL == "" {
-		return "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
-	}
-	return *o.Spec.ChartURL
 }
