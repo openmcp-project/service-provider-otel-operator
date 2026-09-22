@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/fluxcd/helm-controller/api v1.6.4
-	github.com/fluxcd/pkg/apis/kustomize v1.20.0
+	github.com/fluxcd/pkg/apis/kustomize v1.21.0
 	github.com/fluxcd/pkg/apis/meta v1.31.0
 	github.com/fluxcd/pkg/runtime v0.112.0
 	github.com/fluxcd/source-controller/api v1.9.5
