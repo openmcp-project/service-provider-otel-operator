@@ -78,13 +78,13 @@ func ManageCaConfigMap(targetCluster resources.ManagedCluster, caConfigMap corev
 			mutator := openmcpresources.NewConfigMapMutator(targetName, cfg.TargetNamespace, sourceConfigMap.Data)
 			return mutator.Mutate(oConfigMap)
 		},
-		StatusFunc: ConfigMapStatus,
+		StatusFunc: Status,
 	})
 	targetCluster.AddObject(configMap)
 }
 
-// ConfigMapStatus returns the managed status of a ConfigMap object.
-func ConfigMapStatus(o client.Object, rl apiv1alpha1.ResourceLocation) resources.Status {
+// Status returns the managed status of a ConfigMap object.
+func Status(o client.Object, rl apiv1alpha1.ResourceLocation) resources.Status {
 	if !o.GetDeletionTimestamp().IsZero() {
 		return resources.Status{
 			Phase:    apiv1alpha1.Terminating,

@@ -19,9 +19,6 @@ const (
 	cpKubeconfigPath    = "/var/run/secrets/openmcp.cloud/cp-kubeconfig/kubeconfig"
 	operatorTokenPath   = "/var/run/secrets/kubernetes.io/serviceaccount/kubeconfig"
 
-	// customCaVolumeName is the name given to the custom-CA volume and volume mount.
-	customCaVolumeName = "custom-ca-bundle"
-
 	// customCaPath is the directory the CA bundle key is mounted into.
 	customCaPath = "/etc/open-control-plane/custom-ca"
 
