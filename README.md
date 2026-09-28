@@ -146,6 +146,10 @@ metadata:
   name: otel-operator
 spec:
   pollInterval: 1m
+  # Optional: CA bundle for air-gapped or corporate PKI environments.
+  caBundleRef:
+    name: custom-ca-bundle
+    key: ca-bundle.crt
   versions:
     - version: "0.20.8"
       chartURL: "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
@@ -161,11 +165,13 @@ spec:
               enabled: false
             autoGenerateCert:
               enabled: true
-```
 
 | Field                                      | Type     | Description |
 | ------------------------------------------ | -------- | ----------- |
 | `spec.pollInterval`                        | duration | Reconciliation interval. Defaults to `1m`. |
+| `spec.caBundleRef`                         | ConfigMapKeySelector | Optional. Reference to a ConfigMap in the provider pod namespace containing a CA bundle. Copied to the workload cluster and mounted into the OpenTelemetry Operator so it trusts private/corporate CAs. |
+| `spec.caBundleRef.name`                    | string   | Name of the source ConfigMap in the provider pod namespace. |
+| `spec.caBundleRef.key`                     | string   | Key within the ConfigMap whose value is the PEM-encoded CA bundle. |
 | `spec.versions`                            | array    | Required list of `opentelemetry-kube-stack` versions that users may request. |
 | `spec.versions[].version`                  | string   | Required chart version. Must match `OtelOperator.spec.version`. |
 | `spec.versions[].chartURL`                 | string   | OCI URL for the `opentelemetry-kube-stack` Helm chart. |
@@ -201,13 +207,23 @@ spec:
               enabled: false
 ```
 
-For CP API access, the provider propagates CA data from the CP REST config into the generated kubeconfig used by the workload-cluster operator. There is currently no dedicated `ProviderConfig` field for a user-provided registry/chart CA bundle.
+For CP API access, the provider propagates CA data from the CP REST config into the generated kubeconfig used by the workload-cluster operator.
+
+For air-gapped or corporate PKI environments with private certificate authorities, set `spec.caBundleRef` in the `ProviderConfig`. The referenced ConfigMap is copied from the provider pod namespace to each workload cluster instance namespace and mounted into the OpenTelemetry Operator container with `SSL_CERT_DIR` set accordingly:
+
+```yaml
+spec:
+  caBundleRef:
+    name: custom-ca-bundle   # ConfigMap must exist in the provider pod namespace
+    key: ca-bundle.crt
+```
 
 ## 🔐 Operational and Security Notes
 
 - The controller requires cluster access to the onboarding cluster, the target CP, and the workload cluster. It currently requests broad `cluster-admin`-equivalent permissions because it installs CRDs, Flux resources, RBAC, secrets, and the OpenTelemetry operator stack across cluster boundaries.
 - `POD_NAMESPACE` must be set. The provider reads `spec.versions[].chartPullSecret` and `spec.versions[].helmValues.imagePullSecrets` source secrets from this namespace.
 - Chart pull secrets and image pull secrets should be of type `kubernetes.io/dockerconfigjson`.
+- CA bundle ConfigMaps referenced by `spec.caBundleRef` must exist in `POD_NAMESPACE` and are copied to each workload cluster instance namespace. Rotate them according to your platform policy.
 - Secrets are copied only as needed for managed resources. Keep source secrets scoped to the provider namespace and rotate them according to your platform policy.
 - Managed OpenTelemetry CRDs are intentionally orphaned on provider deletion. Clean up user-owned `OpenTelemetryCollector` and `Instrumentation` resources before deleting an `OtelOperator` instance.
 
@@ -329,18 +345,18 @@ The current API version is `oteloperator.services.openmcp.cloud/v1alpha1`. It is
 
 <!-- Update the tier badge and each criterion as implementation and documentation evolve. See https://open-control-plane.io/developers/serviceprovider/quality-criteria for definitions. -->
 
-[![Quality: Experimental](https://img.shields.io/badge/Quality-Experimental-e69138?style=flat-square&labelColor=555)](https://open-control-plane.io/developers/serviceprovider/quality-criteria)
+[![Quality: Incubating](https://img.shields.io/badge/Quality-Incubating-3d9970?style=flat-square&labelColor=555)](https://open-control-plane.io/developers/serviceprovider/quality-criteria)
 
 | Criterion                         | Status | Notes |
 | --------------------------------- | :----: | ----- |
 | Deletion behaviour                |   ✅   | Deletes managed resources and blocks deletion while user-owned OpenTelemetry CRs still exist; CRD Helm uninstall propagation is orphaned. |
-| Status reporting & error messages |   ⚠️   | Status subresource, phase, conditions, managed resource status, and Flux condition messages are exposed; some top-level reconcile errors remain generic. |
-| Operation annotations             |   ❌   | No OpenControlPlane operation annotation support is implemented yet. |
+| Status reporting & error messages |   ✅   | Status subresource, phase, conditions, managed resource status, and Flux condition messages are exposed; `ErrInvalidUserInput` errors are suppressed from the requeue loop. |
+| Operation annotations             |   ✅   | Handled by the `APIReconciler` framework (`openmcp.cloud/operation: ignore` and `reconcile` annotations, plus event filter predicate). |
 | API stability policy              |   ✅   | Alpha API stability policy is documented above. |
-| Custom CA support                 |   ⚠️   | CP API CA data is propagated into the generated workload kubeconfig; no explicit ProviderConfig field exists for user-provided registry/chart CA bundles. |
+| Custom CA support                 |   ✅   | `spec.caBundleRef` copies a CA ConfigMap to the workload cluster and injects `SSL_CERT_DIR` + volume mount into the OpenTelemetry Operator; CP API CA is propagated in the generated workload kubeconfig. |
 | Release artifacts (image + OCM)   |   ✅   | Image and OCM component build/publish tasks are configured through the shared Taskfile and publish workflow. |
 | Testing                           |   ✅   | Unit tests, e2e tests, validation tasks, and CI/e2e workflows are present. |
-| Ownership and maintenance docs    |   ⚠️   | Support, security, contributing, license, and code-of-conduct docs are linked; no CODEOWNERS/OWNERS/MAINTAINERS file exists yet. |
+| Ownership and maintenance docs    |   ✅   | Support, security, contributing, license, and code-of-conduct docs are linked; `.github/CODEOWNERS` names responsible maintainers. |
 
 See the [OpenControlPlane Quality Criteria](https://open-control-plane.io/developers/serviceprovider/quality-criteria) for definitions.
 

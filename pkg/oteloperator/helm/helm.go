@@ -2,7 +2,9 @@ package helm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -16,7 +18,24 @@ const (
 	cpKubeconfigVolume  = "cp-kubeconfig"
 	cpKubeconfigPath    = "/var/run/secrets/openmcp.cloud/cp-kubeconfig/kubeconfig"
 	operatorTokenPath   = "/var/run/secrets/kubernetes.io/serviceaccount/kubeconfig"
+
+	// customCaVolumeName is the name given to the custom-CA volume and volume mount.
+	customCaVolumeName = "custom-ca-bundle"
+
+	// customCaPath is the directory the CA bundle key is mounted into.
+	customCaPath = "/etc/open-control-plane/custom-ca"
+
+	// CustomCABundleConfigMapName is the fixed name for the copied CA bundle ConfigMap
+	// on the workload cluster instance namespace.
+	CustomCABundleConfigMapName = "custom-ca-bundle"
 )
+
+// certDirectories lists standard system certificate directories that are always
+// included in SSL_CERT_DIR alongside the custom CA mount path.
+var certDirectories = []string{
+	"/etc/ssl/certs",
+	"/etc/pki/tls/certs",
+}
 
 // Values defines the helm values that are explicitly processed during reconciliation.
 type Values struct {
@@ -122,6 +141,112 @@ func AddAuthToHelmValues(values *apiextensionsv1.JSON, cpCluster resources.Manag
 	}
 
 	return marshalRoot(root, "helm values")
+}
+
+// AddCAHelmValues injects a custom CA bundle volume, volume mount, and SSL_CERT_DIR
+// environment variable into the opentelemetry-operator manager container of the
+// workload Helm release. The ConfigMap named CustomCABundleConfigMapName must exist
+// in the workload cluster instance namespace (copied there by the controller).
+func AddCAHelmValues(values *apiextensionsv1.JSON, configMap *corev1.ConfigMapKeySelector) (*apiextensionsv1.JSON, error) {
+	if configMap == nil {
+		return nil, errors.New("cannot add custom CA to Helm values: ConfigMapKeySelector is nil")
+	}
+	if configMap.Name == "" {
+		return nil, errors.New("cannot add custom CA to Helm values: caBundleRef.Name must be set")
+	}
+	if configMap.Key == "" {
+		return nil, errors.New("cannot add custom CA to Helm values: caBundleRef.Key must be set")
+	}
+
+	caVolume := corev1.Volume{
+		Name: customCaVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: CustomCABundleConfigMapName},
+				Items:                []corev1.KeyToPath{{Key: configMap.Key, Path: configMap.Key}},
+			},
+		},
+	}
+	caVolumeMount := corev1.VolumeMount{
+		Name:      customCaVolumeName,
+		ReadOnly:  true,
+		MountPath: customCaPath,
+	}
+	caEnvVar := corev1.EnvVar{
+		Name:  "SSL_CERT_DIR",
+		Value: strings.Join(append(certDirectories, customCaPath), ":"),
+	}
+
+	root, err := unmarshalRoot(values)
+	if err != nil {
+		return nil, err
+	}
+
+	// Inject volume at chart root (extraVolumes).
+	var extraVolumes []corev1.Volume
+	if err := unmarshalIfPresent(root, "extraVolumes", &extraVolumes); err != nil {
+		return nil, fmt.Errorf("extraVolumes: %w", err)
+	}
+	extraVolumes = removeConflictingVolumesAndAppend(extraVolumes, caVolume)
+	if root["extraVolumes"], err = json.Marshal(extraVolumes); err != nil {
+		return nil, fmt.Errorf("failed to marshal extraVolumes: %w", err)
+	}
+
+	// Inject volume mount and SSL_CERT_DIR into opentelemetry-operator.manager.
+	var opValues map[string]json.RawMessage
+	if err := unmarshalIfPresent(root, "opentelemetry-operator", &opValues); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal opentelemetry-operator: %w", err)
+	}
+	if opValues == nil {
+		opValues = make(map[string]json.RawMessage)
+	}
+	if err := injectCAIntoManager(opValues, caVolumeMount, caEnvVar); err != nil {
+		return nil, err
+	}
+	opValuesRaw, err := json.Marshal(opValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal opentelemetry-operator: %w", err)
+	}
+	root["opentelemetry-operator"] = opValuesRaw
+
+	return marshalRoot(root, "helm values with CA")
+}
+
+func injectCAIntoManager(root map[string]json.RawMessage, mount corev1.VolumeMount, envVar corev1.EnvVar) error {
+	var managerValues map[string]json.RawMessage
+	if err := unmarshalIfPresent(root, "manager", &managerValues); err != nil {
+		return fmt.Errorf("failed to unmarshal manager: %w", err)
+	}
+	if managerValues == nil {
+		managerValues = make(map[string]json.RawMessage)
+	}
+
+	var envs []corev1.EnvVar
+	if err := unmarshalIfPresent(managerValues, "extraEnvs", &envs); err != nil {
+		return fmt.Errorf("failed to unmarshal manager.extraEnvs: %w", err)
+	}
+	envsRaw, err := json.Marshal(removeConflictingEnvVarsAndAppend(envs, envVar))
+	if err != nil {
+		return fmt.Errorf("failed to marshal manager.extraEnvs: %w", err)
+	}
+	managerValues["extraEnvs"] = envsRaw
+
+	var volumeMounts []corev1.VolumeMount
+	if err := unmarshalIfPresent(managerValues, "extraVolumeMounts", &volumeMounts); err != nil {
+		return fmt.Errorf("failed to unmarshal manager.extraVolumeMounts: %w", err)
+	}
+	volumeMountsRaw, err := json.Marshal(removeConflictingVolumeMountsAndAppend(volumeMounts, mount))
+	if err != nil {
+		return fmt.Errorf("failed to marshal manager.extraVolumeMounts: %w", err)
+	}
+	managerValues["extraVolumeMounts"] = volumeMountsRaw
+
+	managerValuesRaw, err := json.Marshal(managerValues)
+	if err != nil {
+		return fmt.Errorf("failed to marshal manager: %w", err)
+	}
+	root["manager"] = managerValuesRaw
+	return nil
 }
 
 func injectAuthIntoManager(root map[string]json.RawMessage, host, port string) error {
