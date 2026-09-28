@@ -62,7 +62,7 @@ flowchart LR
 6. Install or upgrade the workload operator-only `HelmRelease` (`<name>-workload`).
 7. Report managed resource status and set the service instance to `Ready` when all managed resources are ready.
 
-### Deletion Behaviour
+### Deletion Behavior
 
 On deletion, the provider first checks whether user-owned OpenTelemetry resources still exist in the CP. Deletion is blocked while any of these resources exist:
 
@@ -165,6 +165,8 @@ spec:
               enabled: false
             autoGenerateCert:
               enabled: true
+```
+
 
 | Field                                      | Type     | Description |
 | ------------------------------------------ | -------- | ----------- |
@@ -349,7 +351,7 @@ The current API version is `oteloperator.services.openmcp.cloud/v1alpha1`. It is
 
 | Criterion                         | Status | Notes |
 | --------------------------------- | :----: | ----- |
-| Deletion behaviour                |   ✅   | Deletes managed resources and blocks deletion while user-owned OpenTelemetry CRs still exist; CRD Helm uninstall propagation is orphaned. |
+| Deletion behavior                |   ✅   | Deletes managed resources and blocks deletion while user-owned OpenTelemetry CRs still exist; CRD Helm uninstall propagation is orphaned. |
 | Status reporting & error messages |   ✅   | Status subresource, phase, conditions, managed resource status, and Flux condition messages are exposed; `ErrInvalidUserInput` errors are suppressed from the requeue loop. |
 | Operation annotations             |   ✅   | Handled by the `APIReconciler` framework (`openmcp.cloud/operation: ignore` and `reconcile` annotations, plus event filter predicate). |
 | API stability policy              |   ✅   | Alpha API stability policy is documented above. |

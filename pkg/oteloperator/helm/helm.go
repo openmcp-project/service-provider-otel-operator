@@ -158,20 +158,6 @@ func AddCAHelmValues(values *apiextensionsv1.JSON, configMap *corev1.ConfigMapKe
 		return nil, errors.New("cannot add custom CA to Helm values: caBundleRef.Key must be set")
 	}
 
-	caVolume := corev1.Volume{
-		Name: customCaVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: CustomCABundleConfigMapName},
-				Items:                []corev1.KeyToPath{{Key: configMap.Key, Path: configMap.Key}},
-			},
-		},
-	}
-	caVolumeMount := corev1.VolumeMount{
-		Name:      customCaVolumeName,
-		ReadOnly:  true,
-		MountPath: customCaPath,
-	}
 	caEnvVar := corev1.EnvVar{
 		Name:  "SSL_CERT_DIR",
 		Value: strings.Join(append(certDirectories, customCaPath), ":"),
@@ -182,17 +168,9 @@ func AddCAHelmValues(values *apiextensionsv1.JSON, configMap *corev1.ConfigMapKe
 		return nil, err
 	}
 
-	// Inject volume at chart root (extraVolumes).
-	var extraVolumes []corev1.Volume
-	if err := unmarshalIfPresent(root, "extraVolumes", &extraVolumes); err != nil {
-		return nil, fmt.Errorf("extraVolumes: %w", err)
-	}
-	extraVolumes = removeConflictingVolumesAndAppend(extraVolumes, caVolume)
-	if root["extraVolumes"], err = json.Marshal(extraVolumes); err != nil {
-		return nil, fmt.Errorf("failed to marshal extraVolumes: %w", err)
-	}
-
-	// Inject volume mount and SSL_CERT_DIR into opentelemetry-operator.manager.
+	// Inject SSL_CERT_DIR into opentelemetry-operator.manager.extraEnvs.
+	// The volume and volumeMount are injected via a Flux post-renderer in flux.go
+	// because the opentelemetry-operator subchart exposes no extraVolumes values.
 	var opValues map[string]json.RawMessage
 	if err := unmarshalIfPresent(root, "opentelemetry-operator", &opValues); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal opentelemetry-operator: %w", err)
@@ -200,7 +178,7 @@ func AddCAHelmValues(values *apiextensionsv1.JSON, configMap *corev1.ConfigMapKe
 	if opValues == nil {
 		opValues = make(map[string]json.RawMessage)
 	}
-	if err := injectCAIntoManager(opValues, caVolumeMount, caEnvVar); err != nil {
+	if err := injectCAIntoManager(opValues, caEnvVar); err != nil {
 		return nil, err
 	}
 	opValuesRaw, err := json.Marshal(opValues)
@@ -212,7 +190,7 @@ func AddCAHelmValues(values *apiextensionsv1.JSON, configMap *corev1.ConfigMapKe
 	return marshalRoot(root, "helm values with CA")
 }
 
-func injectCAIntoManager(root map[string]json.RawMessage, mount corev1.VolumeMount, envVar corev1.EnvVar) error {
+func injectCAIntoManager(root map[string]json.RawMessage, envVar corev1.EnvVar) error {
 	var managerValues map[string]json.RawMessage
 	if err := unmarshalIfPresent(root, "manager", &managerValues); err != nil {
 		return fmt.Errorf("failed to unmarshal manager: %w", err)
@@ -230,16 +208,6 @@ func injectCAIntoManager(root map[string]json.RawMessage, mount corev1.VolumeMou
 		return fmt.Errorf("failed to marshal manager.extraEnvs: %w", err)
 	}
 	managerValues["extraEnvs"] = envsRaw
-
-	var volumeMounts []corev1.VolumeMount
-	if err := unmarshalIfPresent(managerValues, "extraVolumeMounts", &volumeMounts); err != nil {
-		return fmt.Errorf("failed to unmarshal manager.extraVolumeMounts: %w", err)
-	}
-	volumeMountsRaw, err := json.Marshal(removeConflictingVolumeMountsAndAppend(volumeMounts, mount))
-	if err != nil {
-		return fmt.Errorf("failed to marshal manager.extraVolumeMounts: %w", err)
-	}
-	managerValues["extraVolumeMounts"] = volumeMountsRaw
 
 	managerValuesRaw, err := json.Marshal(managerValues)
 	if err != nil {

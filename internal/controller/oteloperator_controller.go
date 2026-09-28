@@ -209,6 +209,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		CRDHelmValues:       crdHelmValues,
 		ClusterContext:      clusterCtx,
 		SASecretName:        cpServiceAccount.KubeAPIAccess(),
+		CABundleRef:         pc.Spec.CABundleRef,
 	})
 
 	return mgr, nil
