@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
@@ -42,6 +43,7 @@ import (
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authn"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/authz"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/configmap"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/flux"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/helm"
@@ -71,7 +73,7 @@ func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1a
 	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
-		return ctrl.Result{}, err
+		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	results, cleanerErr := mgr.Apply(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
@@ -116,7 +118,7 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
-		return ctrl.Result{}, err
+		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
 	}
 	results, cleanerErr := mgr.Delete(ctx)
 	managedResources, resultContainsErrors := resultsToResources(ctx, results)
@@ -175,6 +177,11 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		return nil, fmt.Errorf("failed to prepare helm values: %w", err)
 	}
 
+	workloadHelmValues, caConfigMapsToKeep, err := r.applyCABundle(pc, workloadHelmValues, workloadCluster, workloadNamespace)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply CA bundle: %w", err)
+	}
+
 	var chartPullSecret string
 	if kubeStackVersion.ChartPullSecret != nil {
 		chartPullSecret = *kubeStackVersion.ChartPullSecret
@@ -186,6 +193,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 
 	imagePullSecretsToKeep := r.syncImagePullSecrets(workloadCluster, obj, helmValues)
 
+	mgr.AddCleaner(configmap.NewConfigMapCleaner(workloadCluster, instance.Namespace(obj), caConfigMapsToKeep))
 	mgr.AddCleaner(secret.NewSecretCleaner(workloadCluster, instance.Namespace(obj), append(slices.Clone(imagePullSecretsToKeep), corev1.LocalObjectReference{Name: cpServiceAccount.KubeAPIAccess()})))
 	mgr.AddCleaner(secret.NewSecretCleaner(platformCluster, tenantNamespace, chartSecretsToKeep))
 
@@ -201,6 +209,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		CRDHelmValues:       crdHelmValues,
 		ClusterContext:      clusterCtx,
 		SASecretName:        cpServiceAccount.KubeAPIAccess(),
+		CABundleRef:         pc.Spec.CABundleRef,
 	})
 
 	return mgr, nil
@@ -262,13 +271,35 @@ func (r *OtelOperatorReconciler) syncChartPullSecret(platformCluster resources.M
 	return prefixedName, []corev1.LocalObjectReference{{Name: prefixedName}}, nil
 }
 
+// applyCABundle copies the CA bundle ConfigMap from the provider pod namespace to the
+// workload cluster instance namespace and injects the matching volume/mount/env into
+// workloadHelmValues. Returns the (possibly updated) helm values and the list of
+// ConfigMap names that must be kept (for orphan cleanup).
+func (r *OtelOperatorReconciler) applyCABundle(pc *apiv1alpha1.ProviderConfig, workloadHelmValues *apiextensionsv1.JSON, workloadCluster resources.ManagedCluster, workloadNamespace string) (*apiextensionsv1.JSON, []corev1.LocalObjectReference, error) {
+	if pc.Spec.CABundleRef == nil {
+		return workloadHelmValues, nil, nil
+	}
+	var err error
+	workloadHelmValues, err = helm.AddCAHelmValues(workloadHelmValues, pc.Spec.CABundleRef)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to add CA volume to helm values: %w", err)
+	}
+	configmap.ManageCaConfigMap(workloadCluster, pc.Spec.CABundleRef.LocalObjectReference, configmap.CopyConfig{
+		SourceClient:    r.PlatformCluster.Client(),
+		SourceNamespace: r.PodNamespace,
+		TargetNamespace: workloadNamespace,
+		TargetName:      helm.CustomCABundleConfigMapName,
+	})
+	return workloadHelmValues, []corev1.LocalObjectReference{{Name: helm.CustomCABundleConfigMapName}}, nil
+}
+
 func selectKubeStackVersion(requestedVersion string, pc *apiv1alpha1.ProviderConfig) (apiv1alpha1.KubeStackVersion, error) {
 	for _, v := range pc.Spec.Versions {
 		if v.Version == requestedVersion {
 			return v, nil
 		}
 	}
-	return apiv1alpha1.KubeStackVersion{}, fmt.Errorf("requested opentelemetry-kube-stack version (%s) is not available", requestedVersion)
+	return apiv1alpha1.KubeStackVersion{}, fmt.Errorf("%w: requested opentelemetry-kube-stack version (%s) is not available", ctrlerrors.ErrInvalidUserInput, requestedVersion)
 }
 
 func resultsToResources(ctx context.Context, results []resources.Result) ([]apiv1alpha1.ManagedResource, bool) {

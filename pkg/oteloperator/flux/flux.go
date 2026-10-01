@@ -10,6 +10,7 @@ import (
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,6 +36,9 @@ type ManageFluxResourcesParams struct {
 	// SASecretName is the name of the secret on the workload cluster that holds the
 	// CP cluster service-account token and CA certificate for the otel-operator.
 	SASecretName string
+	// CABundleRef, if set, adds a post-renderer patch that mounts the named ConfigMap
+	// as a volume into the opentelemetry-operator Deployment and sets SSL_CERT_DIR.
+	CABundleRef *corev1.ConfigMapKeySelector
 }
 
 const (
@@ -100,8 +104,15 @@ func ManageFluxResources(p ManageFluxResourcesParams) {
 			release.Spec.DependsOn = []helmv2.DependencyReference{
 				{Name: helmReleaseName(p.Obj.Name, crdHelmReleaseSuffix)},
 			}
+			var postRenderers []helmv2.PostRenderer
 			if p.SASecretName != "" {
-				release.Spec.PostRenderers = cpAccessPostRenderers(p.SASecretName)
+				postRenderers = append(postRenderers, cpAccessPostRenderers(p.SASecretName)...)
+			}
+			if p.CABundleRef != nil {
+				postRenderers = append(postRenderers, caVolumePostRenderer(p.CABundleRef)...)
+			}
+			if len(postRenderers) > 0 {
+				release.Spec.PostRenderers = postRenderers
 			}
 			return nil
 		},
@@ -255,6 +266,51 @@ spec:
           secret:
             secretName: %s
 `, saSecretName)
+	return []helmv2.PostRenderer{
+		{
+			Kustomize: &helmv2.Kustomize{
+				Patches: []kustomize.Patch{
+					{
+						Patch: patch,
+						Target: &kustomize.Selector{
+							Kind: "Deployment",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// caVolumePostRenderer returns a Flux HelmRelease post-renderer that patches the
+// opentelemetry-operator Deployment to add the custom CA bundle ConfigMap as a volume
+// and mount it into the manager container.
+//
+// Background: the opentelemetry-operator subchart exposes manager.extraEnvs (used to
+// set SSL_CERT_DIR) but has no extraVolumes / extraVolumeMounts values. The volume and
+// mount must therefore be injected via a strategic-merge-patch post-renderer.
+func caVolumePostRenderer(caRef *corev1.ConfigMapKeySelector) []helmv2.PostRenderer {
+	patch := fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dummy
+spec:
+  template:
+    spec:
+      volumes:
+        - name: custom-ca-bundle
+          configMap:
+            name: custom-ca-bundle
+            items:
+              - key: %s
+                path: %s
+      containers:
+        - name: manager
+          volumeMounts:
+            - name: custom-ca-bundle
+              mountPath: /etc/open-control-plane/custom-ca
+              readOnly: true
+`, caRef.Key, caRef.Key)
 	return []helmv2.PostRenderer{
 		{
 			Kustomize: &helmv2.Kustomize{

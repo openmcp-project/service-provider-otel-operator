@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 	"github.com/stretchr/testify/assert"
@@ -148,7 +149,8 @@ func TestSelectKubeStackVersion(t *testing.T) {
 	_, err = selectKubeStackVersion("v0.158.0", &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{Versions: versions},
 	})
-	require.EqualError(t, err, "requested opentelemetry-kube-stack version (v0.158.0) is not available")
+	require.ErrorIs(t, err, ctrlerrors.ErrInvalidUserInput)
+	require.ErrorContains(t, err, "v0.158.0")
 }
 
 func TestPendingResourcesMessage(t *testing.T) {
