@@ -7,7 +7,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -141,6 +141,11 @@ func (in *OtelOperatorStatus) DeepCopyInto(out *OtelOperatorStatus) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.InstalledVersion != nil {
+		in, out := &in.InstalledVersion, &out.InstalledVersion
+		*out = new(InstalledKubeStackVersion)
+		(*in).DeepCopyInto(*out)
 	}
 }
 

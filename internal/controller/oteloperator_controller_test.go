@@ -153,6 +153,96 @@ func TestSelectKubeStackVersion(t *testing.T) {
 	require.ErrorContains(t, err, "v0.158.0")
 }
 
+func TestPrepareInputs_DeleteFallsBackToInstalledVersionWhenRemovedFromProviderConfig(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = "test"
+	obj.Namespace = "default"
+	obj.Spec.Version = "0.20.7"
+	obj.Status.InstalledVersion = &apiv1alpha1.KubeStackVersion{Version: "0.20.7"}
+
+	r := &OtelOperatorReconciler{}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: "0.20.8"}}, // 0.20.7 no longer offered
+	}}
+
+	_, version, err := r.prepareInputs(obj, pc, true)
+	require.NoError(t, err, "deletion must not fail just because the version was removed")
+	assert.Equal(t, "0.20.7", version.Version, "must fall back to the recorded installed version")
+}
+
+func TestPrepareInputs_DeleteErrorsWithoutRecordedInstalledVersion(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = "test"
+	obj.Namespace = "default"
+	obj.Spec.Version = "0.20.7"
+	// No Status.InstalledVersion recorded, e.g. the instance never got past a failed apply.
+
+	r := &OtelOperatorReconciler{}
+	pc := &apiv1alpha1.ProviderConfig{} // version not offered
+
+	_, _, err := r.prepareInputs(obj, pc, true)
+	require.ErrorIs(t, err, ctrlerrors.ErrInvalidUserInput, "nothing to fall back to, so this must still error")
+}
+
+func TestPrepareInputs_ApplyNeverFallsBackToInstalledVersion(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = "test"
+	obj.Namespace = "default"
+	obj.Spec.Version = "0.20.7"
+	obj.Status.InstalledVersion = &apiv1alpha1.KubeStackVersion{Version: "0.20.7"}
+
+	r := &OtelOperatorReconciler{}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: "0.20.8"}}, // 0.20.7 no longer offered
+	}}
+
+	_, _, err := r.prepareInputs(obj, pc, false)
+	require.ErrorIs(t, err, ctrlerrors.ErrInvalidUserInput, "apply must require the version to still be offered")
+}
+
+func TestPrepareInputs_DeletePrefersLiveVersionOverStaleStatus(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = "test"
+	obj.Namespace = "default"
+	obj.Spec.Version = "0.20.8"
+	// Status still references an older, no-longer-requested version from a previous install.
+	obj.Status.InstalledVersion = &apiv1alpha1.KubeStackVersion{Version: "0.20.7"}
+
+	r := &OtelOperatorReconciler{}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: "0.20.8"}},
+	}}
+
+	_, version, err := r.prepareInputs(obj, pc, true)
+	require.NoError(t, err)
+	assert.Equal(t, "0.20.8", version.Version, "must use the live, requested version when it's still available")
+}
+
+func TestCreateOrUpdate_DoesNotPersistInstalledVersionOnApplyFailure(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = "test"
+	obj.Namespace = "default"
+	obj.Spec.Version = "0.20.7"
+
+	r := &OtelOperatorReconciler{
+		OnboardingCluster: onboardingClient(obj),
+		PlatformCluster:   stubCluster(t, "platform"),
+	}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: "0.20.7"}},
+	}}
+
+	// Stub clusters don't have the Flux/Helm schemes registered, so mgr.Apply is
+	// expected to fail while reconciling the HelmRelease/OCIRepository objects.
+	_, err := r.CreateOrUpdate(context.Background(), obj, pc, clusteraccess.ClusterContext{
+		MCPCluster:      stubCluster(t, "cp"),
+		WorkloadCluster: stubCluster(t, "workload"),
+	})
+
+	require.Error(t, err, "expected the apply to fail due to missing schemes")
+	assert.Nil(t, obj.Status.InstalledVersion, "a failed apply must not record the version as installed")
+}
+
 func TestPendingResourcesMessage(t *testing.T) {
 	resources := []apiv1alpha1.ManagedResource{
 		{

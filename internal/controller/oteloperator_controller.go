@@ -70,7 +70,7 @@ func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1a
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, err
 	}
-	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
+	mgr, kubeStackVersion, err := r.createObjectManager(obj, pc, clusterCtx, false)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
@@ -86,6 +86,9 @@ func (r *OtelOperatorReconciler) CreateOrUpdate(ctx context.Context, obj *apiv1a
 		serviceprovider.StatusProgressing(obj, "ReconcileError", resultWithErrors.Error())
 		return ctrl.Result{}, resultWithErrors
 	}
+	// Only record the version once it has actually been written to the clusters, so a
+	// failed upgrade doesn't make deletion assume resources exist under the new version's config.
+	obj.Status.InstalledVersion = kubeStackVersion.DeepCopy()
 	if allResourcesReady(managedResources) {
 		serviceprovider.StatusReady(obj)
 	} else {
@@ -115,7 +118,7 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 		return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 	}
 	serviceprovider.StatusTerminating(obj)
-	mgr, err := r.createObjectManager(obj, pc, clusterCtx)
+	mgr, _, err := r.createObjectManager(obj, pc, clusterCtx, true)
 	if err != nil {
 		serviceprovider.StatusProgressing(obj, "ReconcileError", err.Error())
 		return ctrl.Result{}, ctrlerrors.IgnoreInvalidUserInput(err)
@@ -137,14 +140,14 @@ func (r *OtelOperatorReconciler) Delete(ctx context.Context, obj *apiv1alpha1.Ot
 	return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 }
 
-func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext) (resources.Manager, error) {
-	tenantNamespace, kubeStackVersion, err := r.prepareInputs(obj, pc)
+func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, clusterCtx clusteraccess.ClusterContext, forDelete bool) (resources.Manager, apiv1alpha1.KubeStackVersion, error) {
+	tenantNamespace, kubeStackVersion, err := r.prepareInputs(obj, pc, forDelete)
 	if err != nil {
-		return nil, err
+		return nil, apiv1alpha1.KubeStackVersion{}, err
 	}
 	helmValues, err := helm.ExtractHelmValues(kubeStackVersion.HelmValues)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract helm values: %w", err)
+		return nil, apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 
 	otelOperatorNamespace := namespaceOtelOperator
@@ -174,12 +177,12 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 
 	workloadHelmValues, crdHelmValues, err := prepareHelmValues(kubeStackVersion.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare helm values: %w", err)
+		return nil, apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to prepare helm values: %w", err)
 	}
 
 	workloadHelmValues, caConfigMapsToKeep, err := r.applyCABundle(pc, workloadHelmValues, workloadCluster, workloadNamespace)
 	if err != nil {
-		return nil, fmt.Errorf("failed to apply CA bundle: %w", err)
+		return nil, apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to apply CA bundle: %w", err)
 	}
 
 	var chartPullSecret string
@@ -188,7 +191,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	}
 	prefixedChartPullSecret, chartSecretsToKeep, err := r.syncChartPullSecret(platformCluster, chartPullSecret, tenantNamespace)
 	if err != nil {
-		return nil, err
+		return nil, apiv1alpha1.KubeStackVersion{}, err
 	}
 
 	imagePullSecretsToKeep := r.syncImagePullSecrets(workloadCluster, obj, helmValues)
@@ -212,16 +215,21 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		CABundleRef:         pc.Spec.CABundleRef,
 	})
 
-	return mgr, nil
+	return mgr, kubeStackVersion, nil
 }
 
-func (r *OtelOperatorReconciler) prepareInputs(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig) (string, apiv1alpha1.KubeStackVersion, error) {
+func (r *OtelOperatorReconciler) prepareInputs(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, forDelete bool) (string, apiv1alpha1.KubeStackVersion, error) {
 	tenantNamespace, err := libutils.StableMCPNamespace(obj.Name, obj.Namespace)
 	if err != nil {
 		return "", apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to determine tenant namespace: %w", err)
 	}
 	kubeStackVersion, err := selectKubeStackVersion(obj.Spec.Version, pc)
 	if err != nil {
+		if forDelete && obj.Status.InstalledVersion != nil {
+			// The version may have been removed from the ProviderConfig; fall back to the
+			// version config that was actually used to build the managed resources.
+			return tenantNamespace, *obj.Status.InstalledVersion, nil
+		}
 		return "", apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to select opentelemetry-kube-stack version: %w", err)
 	}
 	return tenantNamespace, kubeStackVersion, nil
