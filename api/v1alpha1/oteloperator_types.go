@@ -56,7 +56,18 @@ type OtelOperatorStatus struct {
 	// Resources managed by this OtelOperator instance
 	// +optional
 	Resources []ManagedResource `json:"resources,omitempty"`
+
+	// InstalledVersion is the opentelemetry-kube-stack version config that was last
+	// used to build the managed resources. It is used to determine the resources to
+	// clean up on deletion even if the version has since been removed from the
+	// ProviderConfig.
+	// +optional
+	InstalledVersion *InstalledKubeStackVersion `json:"installedVersion,omitempty"`
 }
+
+// InstalledKubeStackVersion is an alias for KubeStackVersion used in status to avoid
+// coupling the status representation to the ProviderConfig spec type.
+type InstalledKubeStackVersion = KubeStackVersion
 
 // ManagedResource defines a kubernetes object with its lifecycle phase
 type ManagedResource struct {

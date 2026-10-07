@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -37,6 +38,13 @@ type ProviderConfigSpec struct {
 	// +kubebuilder:default:="1m"
 	// +kubebuilder:validation:Format=duration
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
+
+	// CABundleRef is a reference to a ConfigMap containing a certificate authority bundle.
+	// The ConfigMap must exist in the provider pod namespace. It will be copied to each workload
+	// cluster instance namespace and mounted into the OpenTelemetry Operator container so that
+	// the operator can trust private or self-signed certificate authorities.
+	// +optional
+	CABundleRef *corev1.ConfigMapKeySelector `json:"caBundleRef,omitempty"`
 }
 
 // KubeStackVersion defines an opentelemetry-kube-stack version that can be installed.

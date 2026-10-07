@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 	"github.com/stretchr/testify/assert"
@@ -22,6 +23,13 @@ import (
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
+)
+
+const (
+	testObjName      = "test"
+	testObjNamespace = "default"
+	testVersion      = "0.20.7"
+	testVersionNew   = "0.20.8"
 )
 
 // onboardingScheme includes OtelOperator so the fake onboarding client accepts it.
@@ -74,12 +82,12 @@ func otelCollectorOnCP(ns, name string) client.ObjectList {
 
 func TestDelete_BlockedWhileOtelCRsExist(t *testing.T) {
 	obj := &apiv1alpha1.OtelOperator{}
-	obj.Name = "test"
-	obj.Namespace = "default"
+	obj.Name = testObjName
+	obj.Namespace = testObjNamespace
 
 	r := &OtelOperatorReconciler{OnboardingCluster: onboardingClient(obj)}
 
-	cp := cpClientWith(otelCollectorOnCP("default", "my-collector"))
+	cp := cpClientWith(otelCollectorOnCP(testObjNamespace, "my-collector"))
 	result, err := r.Delete(context.Background(), obj, &apiv1alpha1.ProviderConfig{}, clusteraccess.ClusterContext{
 		MCPCluster: cp,
 	})
@@ -95,8 +103,8 @@ func TestDelete_BlockedWhileOtelCRsExist(t *testing.T) {
 
 func TestDelete_ProceedsWhenNoCRDsInstalled(t *testing.T) {
 	obj := &apiv1alpha1.OtelOperator{}
-	obj.Name = "test"
-	obj.Namespace = "default"
+	obj.Name = testObjName
+	obj.Namespace = testObjNamespace
 
 	// Provide a stub PlatformCluster so createObjectManager doesn't nil-deref on RESTConfig.
 	// The test only cares that the deletion guard (BlockingKinds) doesn't block — errors from
@@ -119,8 +127,8 @@ func TestDelete_ProceedsWhenNoCRDsInstalled(t *testing.T) {
 
 func TestDelete_ProceedsWhenNoOtelCRs(t *testing.T) {
 	obj := &apiv1alpha1.OtelOperator{}
-	obj.Name = "test"
-	obj.Namespace = "default"
+	obj.Name = testObjName
+	obj.Namespace = testObjNamespace
 
 	r := &OtelOperatorReconciler{
 		OnboardingCluster: onboardingClient(),
@@ -138,17 +146,108 @@ func TestDelete_ProceedsWhenNoOtelCRs(t *testing.T) {
 }
 
 func TestSelectKubeStackVersion(t *testing.T) {
-	versions := []apiv1alpha1.KubeStackVersion{{Version: "0.20.7"}, {Version: "0.20.8"}}
-	version, err := selectKubeStackVersion("0.20.8", &apiv1alpha1.ProviderConfig{
+	versions := []apiv1alpha1.KubeStackVersion{{Version: testVersion}, {Version: testVersionNew}}
+	version, err := selectKubeStackVersion(testVersionNew, &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{Versions: versions},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "0.20.8", version.Version)
+	assert.Equal(t, testVersionNew, version.Version)
 
 	_, err = selectKubeStackVersion("v0.158.0", &apiv1alpha1.ProviderConfig{
 		Spec: apiv1alpha1.ProviderConfigSpec{Versions: versions},
 	})
-	require.EqualError(t, err, "requested opentelemetry-kube-stack version (v0.158.0) is not available")
+	require.ErrorIs(t, err, ctrlerrors.ErrInvalidUserInput)
+	require.ErrorContains(t, err, "v0.158.0")
+}
+
+func TestPrepareInputs_DeleteFallsBackToInstalledVersionWhenRemovedFromProviderConfig(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = testObjName
+	obj.Namespace = testObjNamespace
+	obj.Spec.Version = testVersion
+	obj.Status.InstalledVersion = &apiv1alpha1.KubeStackVersion{Version: testVersion}
+
+	r := &OtelOperatorReconciler{}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: testVersionNew}}, // 0.20.7 no longer offered
+	}}
+
+	_, version, err := r.prepareInputs(obj, pc, true)
+	require.NoError(t, err, "deletion must not fail just because the version was removed")
+	assert.Equal(t, testVersion, version.Version, "must fall back to the recorded installed version")
+}
+
+func TestPrepareInputs_DeleteErrorsWithoutRecordedInstalledVersion(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = testObjName
+	obj.Namespace = testObjNamespace
+	obj.Spec.Version = testVersion
+	// No Status.InstalledVersion recorded, e.g. the instance never got past a failed apply.
+
+	r := &OtelOperatorReconciler{}
+	pc := &apiv1alpha1.ProviderConfig{} // version not offered
+
+	_, _, err := r.prepareInputs(obj, pc, true)
+	require.ErrorIs(t, err, ctrlerrors.ErrInvalidUserInput, "nothing to fall back to, so this must still error")
+}
+
+func TestPrepareInputs_ApplyNeverFallsBackToInstalledVersion(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = testObjName
+	obj.Namespace = testObjNamespace
+	obj.Spec.Version = testVersion
+	obj.Status.InstalledVersion = &apiv1alpha1.KubeStackVersion{Version: testVersion}
+
+	r := &OtelOperatorReconciler{}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: testVersionNew}}, // 0.20.7 no longer offered
+	}}
+
+	_, _, err := r.prepareInputs(obj, pc, false)
+	require.ErrorIs(t, err, ctrlerrors.ErrInvalidUserInput, "apply must require the version to still be offered")
+}
+
+func TestPrepareInputs_DeletePrefersLiveVersionOverStaleStatus(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = testObjName
+	obj.Namespace = testObjNamespace
+	obj.Spec.Version = testVersionNew
+	// Status still references an older, no-longer-requested version from a previous install.
+	obj.Status.InstalledVersion = &apiv1alpha1.KubeStackVersion{Version: testVersion}
+
+	r := &OtelOperatorReconciler{}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: testVersionNew}},
+	}}
+
+	_, version, err := r.prepareInputs(obj, pc, true)
+	require.NoError(t, err)
+	assert.Equal(t, testVersionNew, version.Version, "must use the live, requested version when it's still available")
+}
+
+func TestCreateOrUpdate_DoesNotPersistInstalledVersionOnApplyFailure(t *testing.T) {
+	obj := &apiv1alpha1.OtelOperator{}
+	obj.Name = testObjName
+	obj.Namespace = testObjNamespace
+	obj.Spec.Version = testVersion
+
+	r := &OtelOperatorReconciler{
+		OnboardingCluster: onboardingClient(obj),
+		PlatformCluster:   stubCluster(t, "platform"),
+	}
+	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: testVersion}},
+	}}
+
+	// Stub clusters don't have the Flux/Helm schemes registered, so mgr.Apply is
+	// expected to fail while reconciling the HelmRelease/OCIRepository objects.
+	_, err := r.CreateOrUpdate(context.Background(), obj, pc, clusteraccess.ClusterContext{
+		MCPCluster:      stubCluster(t, "cp"),
+		WorkloadCluster: stubCluster(t, "workload"),
+	})
+
+	require.Error(t, err, "expected the apply to fail due to missing schemes")
+	assert.Nil(t, obj.Status.InstalledVersion, "a failed apply must not record the version as installed")
 }
 
 func TestPendingResourcesMessage(t *testing.T) {
