@@ -122,7 +122,7 @@ POD_NAMESPACE=openmcp-system \
 `OtelOperator` is created in the onboarding cluster per CP to request an OpenTelemetry Operator installation.
 
 ```yaml
-apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
+apiVersion: oteloperator.services.open-control-plane.io/v1alpha1
 kind: OtelOperator
 metadata:
   name: my-cp
@@ -140,7 +140,7 @@ spec:
 `ProviderConfig` is a cluster-scoped resource in the platform cluster. It configures defaults shared by all `OtelOperator` instances.
 
 ```yaml
-apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
+apiVersion: oteloperator.services.open-control-plane.io/v1alpha1
 kind: ProviderConfig
 metadata:
   name: otel-operator
@@ -341,7 +341,7 @@ The service provider binary accepts a command (`init` or `run`) as first argumen
 
 ## API Stability Policy
 
-The current API version is `oteloperator.services.openmcp.cloud/v1alpha1`. It is an alpha API: fields, defaults, status shape, and reconciliation semantics may change in minor releases. Breaking API changes should be documented in release notes and accompanied by migration guidance when practical. Do not treat the alpha API as backward-compatible until a beta or stable version is introduced.
+The current API version is `oteloperator.services.open-control-plane.io/v1alpha1`. It is an alpha API: fields, defaults, status shape, and reconciliation semantics may change in minor releases. Breaking API changes should be documented in release notes and accompanied by migration guidance when practical. Do not treat the alpha API as backward-compatible until a beta or stable version is introduced.
 
 ## Quality Criteria
 

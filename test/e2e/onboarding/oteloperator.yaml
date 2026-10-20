@@ -1,4 +1,4 @@
-apiVersion: oteloperator.services.openmcp.cloud/v1alpha1
+apiVersion: oteloperator.services.open-control-plane.io/v1alpha1
 kind: OtelOperator
 metadata:
   name: test-cp

@@ -6,9 +6,9 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     openmcp.cloud/cluster: platform
-  name: providerconfigs.oteloperator.services.openmcp.cloud
+  name: providerconfigs.oteloperator.services.open-control-plane.io
 spec:
-  group: oteloperator.services.openmcp.cloud
+  group: oteloperator.services.open-control-plane.io
   names:
     kind: ProviderConfig
     listKind: ProviderConfigList

@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	labelInstanceID          = "oteloperator.services.openmcp.cloud/instance-id"
+	labelInstanceID          = "oteloperator.services.open-control-plane.io/instance-id"
 	base32EncodeStdLowerCase = "abcdefghijklmnopqrstuvwxyz234567"
 )
 
