@@ -16,7 +16,7 @@ const (
 	helmKeyEnabled      = "enabled"
 	cpKubeconfigEnvName = "KUBECONFIG"
 	cpKubeconfigVolume  = "cp-kubeconfig"
-	cpKubeconfigPath    = "/var/run/secrets/openmcp.cloud/cp-kubeconfig/kubeconfig"
+	cpKubeconfigPath    = "/var/run/secrets/open-control-plane.io/cp-kubeconfig/kubeconfig"
 	operatorTokenPath   = "/var/run/secrets/kubernetes.io/serviceaccount/kubeconfig"
 
 	// customCaPath is the directory the CA bundle key is mounted into.
@@ -265,7 +265,7 @@ func injectKubeconfigIntoDefaultCRConfig(root map[string]json.RawMessage, secret
 	}
 	volumeMounts = removeConflictingVolumeMountsAndAppend(volumeMounts, corev1.VolumeMount{
 		Name:      cpKubeconfigVolume,
-		MountPath: "/var/run/secrets/openmcp.cloud/cp-kubeconfig",
+		MountPath: "/var/run/secrets/open-control-plane.io/cp-kubeconfig",
 		ReadOnly:  true,
 	})
 	setRawValue(defaultCRConfig, "volumeMounts", volumeMounts)
