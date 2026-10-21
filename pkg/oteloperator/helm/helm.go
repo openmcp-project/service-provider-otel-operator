@@ -57,6 +57,11 @@ func ExtractHelmValues(values *apiextensionsv1.JSON) (*Values, error) {
 // must render only the operator/runtime objects from the opentelemetry-kube-stack chart.
 // automountServiceAccountToken is disabled so the chart creates an explicit "access-token"
 // projected volume that the post-renderer can replace with the CP credential secret.
+//
+// operator.networkpolicy is explicitly disabled because the feature (Beta since otel-operator
+// v0.159.0 / kube-stack chart 0.23.1) looks up the operator's own pod via the manager REST
+// config. When KUBECONFIG points to the CP cluster the pod cannot be found there, causing an
+// immediate crash. NetworkPolicy management is not needed in this split-cluster topology.
 func WorkloadHelmValues(values *apiextensionsv1.JSON) (*apiextensionsv1.JSON, error) {
 	root, err := unmarshalRoot(values)
 	if err != nil {
@@ -77,6 +82,23 @@ func WorkloadHelmValues(values *apiextensionsv1.JSON) (*apiextensionsv1.JSON, er
 	// an explicit "access-token" projected volume which the Flux post-renderer
 	// replaces with the CP credential secret.
 	setRawValue(opValues, "automountServiceAccountToken", false)
+	// Disable the operator.networkpolicy feature gate (Beta since otel-operator v0.159.0,
+	// on by default). It queries the operator's own pod via the manager REST config; in our
+	// split-cluster setup that config points to the CP cluster where the pod does not exist.
+	// The bundled subchart uses manager.featureGatesMap (map[string]bool), not featureGates (string).
+	var managerValues map[string]json.RawMessage
+	if err := unmarshalIfPresent(opValues, "manager", &managerValues); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal opentelemetry-operator.manager: %w", err)
+	}
+	if managerValues == nil {
+		managerValues = make(map[string]json.RawMessage)
+	}
+	setRawValue(managerValues, "featureGatesMap", map[string]any{"operator.networkpolicy": false})
+	managerValuesRaw, err := json.Marshal(managerValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal opentelemetry-operator.manager: %w", err)
+	}
+	opValues["manager"] = managerValuesRaw
 	opValuesRaw, err := json.Marshal(opValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal opentelemetry-operator: %w", err)
