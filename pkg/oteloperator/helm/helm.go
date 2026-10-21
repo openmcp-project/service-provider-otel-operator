@@ -85,7 +85,20 @@ func WorkloadHelmValues(values *apiextensionsv1.JSON) (*apiextensionsv1.JSON, er
 	// Disable the operator.networkpolicy feature gate (Beta since otel-operator v0.159.0,
 	// on by default). It queries the operator's own pod via the manager REST config; in our
 	// split-cluster setup that config points to the CP cluster where the pod does not exist.
-	setRawValue(opValues, "featureGates", "operator.networkpolicy=false")
+	// The bundled subchart uses manager.featureGatesMap (map[string]bool), not featureGates (string).
+	var managerValues map[string]json.RawMessage
+	if err := unmarshalIfPresent(opValues, "manager", &managerValues); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal opentelemetry-operator.manager: %w", err)
+	}
+	if managerValues == nil {
+		managerValues = make(map[string]json.RawMessage)
+	}
+	setRawValue(managerValues, "featureGatesMap", map[string]any{"operator.networkpolicy": false})
+	managerValuesRaw, err := json.Marshal(managerValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal opentelemetry-operator.manager: %w", err)
+	}
+	opValues["manager"] = managerValuesRaw
 	opValuesRaw, err := json.Marshal(opValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal opentelemetry-operator: %w", err)
