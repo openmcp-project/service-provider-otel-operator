@@ -131,6 +131,13 @@ func TestWorkloadHelmValues_ConfiguresKubeStackOperatorOnlyRelease(t *testing.T)
 	if automount {
 		t.Fatal("expected opentelemetry-operator.automountServiceAccountToken=false")
 	}
+	var featureGates string
+	if err := json.Unmarshal(opValues["featureGates"], &featureGates); err != nil {
+		t.Fatalf("invalid featureGates JSON: %v", err)
+	}
+	if featureGates != "operator.networkpolicy=false" {
+		t.Fatalf("expected opentelemetry-operator.featureGates=%q, got %q", "operator.networkpolicy=false", featureGates)
+	}
 }
 
 func TestCRDHelmValues_ConfiguresKubeStackCRDOnlyRelease(t *testing.T) {

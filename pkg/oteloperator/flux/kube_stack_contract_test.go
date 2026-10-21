@@ -12,7 +12,7 @@ import (
 )
 
 // renovate: datasource=github-tags depName=open-telemetry/opentelemetry-helm-charts extractVersion=^opentelemetry-kube-stack-(?<version>.+)$
-const kubeStackContractVersion = "0.20.8"
+const kubeStackContractVersion = "0.23.1"
 
 const kubeStackChartURL = "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
 
