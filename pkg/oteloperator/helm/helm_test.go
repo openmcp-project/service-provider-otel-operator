@@ -259,7 +259,7 @@ func TestAddAuthToHelmValues_InjectsCollectorKubeconfigDefaults(t *testing.T) {
 	if err := json.Unmarshal(defaultCRConfig["volumeMounts"], &volumeMounts); err != nil {
 		t.Fatalf("invalid defaultCRConfig.volumeMounts JSON: %v", err)
 	}
-	if len(volumeMounts) != 1 || volumeMounts[0].Name != cpKubeconfigVolume || volumeMounts[0].MountPath != "/var/run/secrets/openmcp.cloud/cp-kubeconfig" || !volumeMounts[0].ReadOnly {
+	if len(volumeMounts) != 1 || volumeMounts[0].Name != cpKubeconfigVolume || volumeMounts[0].MountPath != "/var/run/secrets/open-control-plane.io/cp-kubeconfig" || !volumeMounts[0].ReadOnly {
 		t.Fatalf("unexpected collector volumeMounts: %#v", volumeMounts)
 	}
 	var volumes []corev1.Volume

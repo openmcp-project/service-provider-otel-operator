@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	annotationTokenExpirationTime = "oteloperator.services.openmcp.cloud/token-expiration-time"
+	annotationTokenExpirationTime = "oteloperator.services.open-control-plane.io/token-expiration-time"
 )
 
 var (
