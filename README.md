@@ -306,6 +306,8 @@ task test
 task test-e2e
 ```
 
+The GitHub Actions e2e job uploads an `e2e-diagnostics-<run-id>-<attempt>` artifact, retained for seven days. It includes runner limits, resource state captured before teardown, controller logs, and kind-node startup/kubelet logs retained even when failed nodes are deleted. Credential values are redacted; Secrets and raw kubeconfigs are not uploaded. Failed prerequisites stop dependent assessments instead of waiting on resources that were never provisioned.
+
 ### Generate CRDs and DeepCopy
 
 ```bash

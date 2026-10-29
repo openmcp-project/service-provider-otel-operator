@@ -2,6 +2,8 @@ package e2e
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -27,26 +29,49 @@ import (
 // testCPName is the name of the OtelOperator and ControlPlane objects used in tests.
 const testCPName = "test-cp"
 
+func captureDiagnosticsOnFailure(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+		defer cancel()
+		t.Log("Capturing e2e failure diagnostics")
+		cmd := exec.CommandContext(ctx, "bash", "../../hack/e2e-diagnostics.sh", "snapshot")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			t.Logf("Failed to capture e2e diagnostics: %v", err)
+		}
+	})
+}
+
 func TestServiceProvider(t *testing.T) {
 	var onboardingList unstructured.UnstructuredList
+	var cleanupFailed bool
 	basicProviderTest := features.New("otel-operator provider test").
 		Setup(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+			captureDiagnosticsOnFailure(t)
 			if _, err := resources.CreateObjectsFromDir(ctx, c, "platform"); err != nil {
-				t.Errorf("failed to create platform cluster objects: %v", err)
+				t.Fatalf("failed to create platform cluster objects: %v", err)
 			}
 			return ctx
 		}).
 		Assess("create OtelOperator and verify Ready",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+				captureDiagnosticsOnFailure(t)
 				onboardingConfig, err := clusterutils.OnboardingConfig()
 				if err != nil {
-					t.Error(err)
-					return ctx
+					t.Fatal(err)
 				}
 				var objList *unstructured.UnstructuredList
 				if err := wait.For(func(ctx context.Context) (bool, error) {
 					var createErr error
 					objList, createErr = resources.CreateObjectsFromDir(ctx, onboardingConfig, "onboarding")
+					if objList != nil {
+						objList.DeepCopyInto(&onboardingList)
+					}
 					if createErr != nil {
 						if strings.Contains(createErr.Error(), "no matches for") {
 							return false, nil
@@ -55,8 +80,7 @@ func TestServiceProvider(t *testing.T) {
 					}
 					return true, nil
 				}, wait.WithTimeout(5*time.Minute), wait.WithInterval(5*time.Second)); err != nil {
-					t.Errorf("failed to create onboarding cluster objects: %v", err)
-					return ctx
+					t.Fatalf("failed to create onboarding cluster objects: %v", err)
 				}
 				for i := range objList.Items {
 					obj := &objList.Items[i]
@@ -66,24 +90,22 @@ func TestServiceProvider(t *testing.T) {
 					}
 					if err := wait.For(openmcpconditions.Match(obj, onboardingConfig, conditionType, corev1.ConditionTrue),
 						wait.WithTimeout(10*time.Minute)); err != nil {
-						t.Error(err)
+						t.Fatal(err)
 					}
 				}
-				objList.DeepCopyInto(&onboardingList)
 				return ctx
 			},
 		).
 		Assess("platform cluster: OCIRepository and HelmReleases are ready",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+				captureDiagnosticsOnFailure(t)
 				platformConfig, err := clusterutils.ConfigByPrefix("platform", corev1.NamespaceDefault)
 				if err != nil {
-					t.Errorf("failed to get platform cluster config: %v", err)
-					return ctx
+					t.Fatalf("failed to get platform cluster config: %v", err)
 				}
 				tenantNamespace, err := libutils.StableMCPNamespace(testCPName, corev1.NamespaceDefault)
 				if err != nil {
-					t.Errorf("failed to get tenant namespace: %v", err)
-					return ctx
+					t.Fatalf("failed to get tenant namespace: %v", err)
 				}
 
 				ociRepo := &sourcev1.OCIRepository{}
@@ -91,7 +113,7 @@ func TestServiceProvider(t *testing.T) {
 				ociRepo.SetNamespace(tenantNamespace)
 				if err := wait.For(openmcpconditions.Match(ociRepo, platformConfig, "Ready", corev1.ConditionTrue),
 					wait.WithTimeout(5*time.Minute)); err != nil {
-					t.Errorf("OCIRepository not ready: %v", err)
+					t.Fatalf("OCIRepository not ready: %v", err)
 				}
 
 				for _, name := range []string{testCPName + "-crds", testCPName + "-workload"} {
@@ -100,7 +122,7 @@ func TestServiceProvider(t *testing.T) {
 					helmRelease.SetNamespace(tenantNamespace)
 					if err := wait.For(openmcpconditions.Match(helmRelease, platformConfig, "Ready", corev1.ConditionTrue),
 						wait.WithTimeout(5*time.Minute)); err != nil {
-						t.Errorf("HelmRelease %s not ready: %v", name, err)
+						t.Fatalf("HelmRelease %s not ready: %v", name, err)
 					}
 				}
 				return ctx
@@ -108,61 +130,66 @@ func TestServiceProvider(t *testing.T) {
 		).
 		Assess("workload cluster: operator deployment exists",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+				captureDiagnosticsOnFailure(t)
 				workloadConfig, err := clusterutils.ConfigByPrefix("workload", corev1.NamespaceDefault)
 				if err != nil {
-					t.Error(err)
-					return ctx
+					t.Fatal(err)
 				}
 				onboardingConfig, err := clusterutils.OnboardingConfig()
 				if err != nil {
-					t.Error(err)
-					return ctx
+					t.Fatal(err)
 				}
 				if err := apiv1alpha1.AddToScheme(onboardingConfig.Client().Resources().GetScheme()); err != nil {
-					t.Errorf("failed to register OtelOperator scheme: %v", err)
-					return ctx
+					t.Fatalf("failed to register OtelOperator scheme: %v", err)
 				}
 				obj := &apiv1alpha1.OtelOperator{}
 				if err := onboardingConfig.Client().Resources().Get(ctx, testCPName, corev1.NamespaceDefault, obj); err != nil {
-					t.Errorf("failed to get OtelOperator %s/%s: %v", corev1.NamespaceDefault, testCPName, err)
-					return ctx
+					t.Fatalf("failed to get OtelOperator %s/%s: %v", corev1.NamespaceDefault, testCPName, err)
 				}
 				workloadNamespace := instance.Namespace(obj)
 				dep := &appsv1.DeploymentList{}
 				if err := wait.For(conditions.New(workloadConfig.Client().Resources(workloadNamespace)).
 					ResourceListN(dep, 1),
 					wait.WithTimeout(5*time.Minute)); err != nil {
-					t.Errorf("operator deployment not found in namespace %s: %v", workloadNamespace, err)
+					t.Fatalf("operator deployment not found in namespace %s: %v", workloadNamespace, err)
 				}
 				return ctx
 			},
 		).
 		Assess("delete OtelOperator and verify clean teardown",
 			func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
+				captureDiagnosticsOnFailure(t)
 				onboardingConfig, err := clusterutils.OnboardingConfig()
 				if err != nil {
-					t.Error(err)
-					return ctx
+					t.Fatal(err)
 				}
-				for i := range onboardingList.Items {
+				for len(onboardingList.Items) > 0 {
+					i := len(onboardingList.Items) - 1
 					obj := &onboardingList.Items[i]
 					if err := resources.DeleteObject(ctx, onboardingConfig, obj, wait.WithTimeout(5*time.Minute)); err != nil {
-						t.Errorf("failed to delete %s/%s: %v", obj.GetNamespace(), obj.GetName(), err)
+						cleanupFailed = true
+						t.Fatalf("failed to delete %s/%s: %v", obj.GetNamespace(), obj.GetName(), err)
 					}
+					onboardingList.Items = onboardingList.Items[:i]
 				}
-				// Clear list so Teardown doesn't try again.
-				onboardingList = unstructured.UnstructuredList{}
 				return ctx
 			},
 		).
 		Teardown(func(ctx context.Context, t *testing.T, c *envconf.Config) context.Context {
-			onboardingConfig, err := clusterutils.OnboardingConfig()
-			if err != nil {
-				t.Error(err)
+			if cleanupFailed {
 				return ctx
 			}
-			for _, obj := range onboardingList.Items {
-				_ = onboardingConfig.Client().Resources().Delete(ctx, &obj)
+			onboardingConfig, err := clusterutils.OnboardingConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for len(onboardingList.Items) > 0 {
+				i := len(onboardingList.Items) - 1
+				obj := &onboardingList.Items[i]
+				if err := resources.DeleteObject(ctx, onboardingConfig, obj, wait.WithTimeout(5*time.Minute)); err != nil {
+					t.Fatalf("failed to delete %s/%s: %v", obj.GetNamespace(), obj.GetName(), err)
+				}
+				onboardingList.Items = onboardingList.Items[:i]
 			}
 			return ctx
 		})
