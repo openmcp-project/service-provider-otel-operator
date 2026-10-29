@@ -15,7 +15,7 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-26.04
     env:
-      E2E_DIAGNOSTICS_DIR: ${{ runner.temp }}/e2e-diagnostics
+      E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/.e2e-diagnostics
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
