@@ -6,7 +6,7 @@ require (
 	github.com/fluxcd/helm-controller/api v1.6.5
 	github.com/fluxcd/pkg/apis/kustomize v1.23.0
 	github.com/fluxcd/pkg/apis/meta v1.38.0
-	github.com/fluxcd/pkg/runtime v0.120.0
+	github.com/fluxcd/pkg/runtime v0.122.0
 	github.com/fluxcd/source-controller/api v1.9.6
 	github.com/openmcp-project/controller-utils v0.33.3
 	github.com/openmcp-project/opencontrolplane-runtime v1.4.2
@@ -83,9 +83,9 @@ require (
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.24.1 // indirect
+	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
-	github.com/prometheus/common v0.71.0 // indirect
+	github.com/prometheus/common v0.72.0 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/vladimirvivien/gexe v0.5.0 // indirect
