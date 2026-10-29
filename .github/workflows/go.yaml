@@ -15,7 +15,7 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-26.04
     env:
-      E2E_DIAGNOSTICS_DIR: ${{ github.workspace }}/.e2e-diagnostics
+      E2E_DIAGNOSTICS_DIR: /tmp/e2e-diagnostics
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -35,6 +35,10 @@ jobs:
 
       - name: Snapshot host before tasks
         run: bash hack/e2e-diagnostics.sh host || echo '::warning::Host diagnostics failed'
+
+      - name: Configure inotify capacity for kind clusters
+        # All kind nodes share the Docker host's per-UID inotify instance budget.
+        run: sudo sysctl -w fs.inotify.max_user_instances=8192
 
       - name: task generate
         run: |

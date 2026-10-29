@@ -308,6 +308,8 @@ task test-e2e
 
 The GitHub Actions e2e job uploads an `e2e-diagnostics-<run-id>-<attempt>` artifact, retained for seven days. It includes runner limits, resource state captured before teardown, controller logs, and kind-node startup/kubelet logs retained even when failed nodes are deleted. Credential values are redacted; Secrets and raw kubeconfigs are not uploaded. Failed prerequisites stop dependent assessments instead of waiting on resources that were never provisioned.
 
+All kind nodes share the Docker host's per-UID inotify instance limit. The e2e workflow raises `fs.inotify.max_user_instances` to `8192` before provisioning; Ubuntu 26.04's default of `128` was exhausted by the test clusters, preventing CP/workload startup. For local Linux reproduction, apply `sudo sysctl -w fs.inotify.max_user_instances=8192` on the Docker host (inside the VM when using Colima), not inside an individual cluster.
+
 ### Generate CRDs and DeepCopy
 
 ```bash
