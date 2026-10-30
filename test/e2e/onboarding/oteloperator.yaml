@@ -3,4 +3,4 @@ kind: OtelOperator
 metadata:
   name: test-cp
 spec:
-  version: "0.20.8"
+  version: "v0.20.8"

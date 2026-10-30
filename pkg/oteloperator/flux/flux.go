@@ -3,8 +3,8 @@ package flux
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
-
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/apis/kustomize"
 	"github.com/fluxcd/pkg/apis/meta"
@@ -147,7 +147,7 @@ func newOCIRepository(p ManageFluxResourcesParams) resources.ManagedObject {
 					Operation: "extract",
 				},
 			}
-			repo.Spec.Reference = &sourcev1.OCIRepositoryRef{Tag: p.KubeStackVersion.Version}
+			repo.Spec.Reference = &sourcev1.OCIRepositoryRef{Tag: strings.TrimPrefix(p.KubeStackVersion.Version, "v")}
 			if p.ChartPullSecretName != "" {
 				repo.Spec.SecretRef = &meta.LocalObjectReference{
 					Name: p.ChartPullSecretName,

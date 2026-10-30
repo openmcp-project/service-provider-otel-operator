@@ -50,8 +50,8 @@ spec:
             properties:
               version:
                 description: |-
-                  Version is the opentelemetry-kube-stack chart version to install. The
-                  opentelemetry-operator version is selected by the chart.
+                  Version is the v-prefixed opentelemetry-kube-stack chart version to install.
+                  The opentelemetry-operator version is selected by the chart.
                 type: string
             required:
             - version
@@ -143,8 +143,8 @@ spec:
                     x-kubernetes-preserve-unknown-fields: true
                   version:
                     description: |-
-                      Version is the opentelemetry-kube-stack chart version to install. The
-                      opentelemetry-operator version is determined by this chart version.
+                      Version is the v-prefixed opentelemetry-kube-stack chart version to install.
+                      The opentelemetry-operator version is determined by this chart version.
                     type: string
                 required:
                 - version
