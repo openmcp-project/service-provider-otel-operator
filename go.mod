@@ -3,7 +3,7 @@ module github.com/openmcp-project/service-provider-otel-operator
 go 1.27.3
 
 require (
-	github.com/fluxcd/helm-controller/api v1.6.5
+	github.com/fluxcd/helm-controller/api v1.7.0
 	github.com/fluxcd/pkg/apis/kustomize v1.23.0
 	github.com/fluxcd/pkg/apis/meta v1.38.0
 	github.com/fluxcd/pkg/runtime v0.122.0
