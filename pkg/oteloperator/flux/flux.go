@@ -140,7 +140,7 @@ func newOCIRepository(p ManageFluxResourcesParams) resources.ManagedObject {
 				return fmt.Errorf("missing ChartURL definition for opentelemetry-kube-stack version %s", p.KubeStackVersion.Version)
 			}
 			repo.Spec = sourcev1.OCIRepositorySpec{
-				Interval: metav1.Duration{Duration: p.PollInterval},
+				Interval: &metav1.Duration{Duration: p.PollInterval},
 				URL:      *p.KubeStackVersion.ChartURL,
 				LayerSelector: &sourcev1.OCILayerSelector{
 					MediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip",
