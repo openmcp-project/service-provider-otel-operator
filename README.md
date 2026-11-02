@@ -127,13 +127,13 @@ kind: OtelOperator
 metadata:
   name: my-cp
 spec:
-  # Required: opentelemetry-kube-stack Helm chart version.
-  version: "0.20.1"
+  # Required: v-prefixed opentelemetry-kube-stack Helm chart version.
+  version: "v0.23.1"
 ```
 
 | Field          | Type   | Required | Description |
 | -------------- | ------ | :------: | ----------- |
-| `spec.version` | string |    yes   | `opentelemetry-kube-stack` Helm chart version to install. |
+| `spec.version` | string |    yes   | v-prefixed `opentelemetry-kube-stack` Helm chart version to install. |
 
 ### ProviderConfig
 
@@ -151,7 +151,7 @@ spec:
     name: custom-ca-bundle
     key: ca-bundle.crt
   versions:
-    - version: "0.20.8"
+    - version: "v0.23.1"
       chartURL: "oci://ghcr.io/open-telemetry/opentelemetry-helm-charts/opentelemetry-kube-stack"
       # Optional: Secret in the provider pod namespace for pulling the Helm chart.
       chartPullSecret: chart-registry-secret
@@ -175,11 +175,13 @@ spec:
 | `spec.caBundleRef.name`                    | string   | Name of the source ConfigMap in the provider pod namespace. |
 | `spec.caBundleRef.key`                     | string   | Key within the ConfigMap whose value is the PEM-encoded CA bundle. |
 | `spec.versions`                            | array    | Required list of `opentelemetry-kube-stack` versions that users may request. |
-| `spec.versions[].version`                  | string   | Required chart version. Must match `OtelOperator.spec.version`. |
+| `spec.versions[].version`                  | string   | Required v-prefixed chart version. Must match `OtelOperator.spec.version`. |
 | `spec.versions[].chartURL`                 | string   | OCI URL for the `opentelemetry-kube-stack` Helm chart. |
 | `spec.versions[].chartPullSecret`          | string   | Optional `kubernetes.io/dockerconfigjson` secret for chart registry authentication. The source secret must exist in the provider pod namespace. |
 | `spec.versions[].helmValues`               | object   | Raw Helm values passed to the managed chart releases for this version. |
 | `spec.versions[].helmValues.imagePullSecrets` | array | Optional image pull secrets. Source secrets must exist in the provider pod namespace and are copied to the workload cluster namespace. |
+
+The API uses v-prefixed chart versions. The provider removes the `v` only when setting the upstream OCI tag, whose chart tags are unprefixed.
 
 ### cert-manager and CA handling
 
@@ -199,7 +201,7 @@ If cert-manager is available in your CPs, enable it through `spec.versions[].hel
 ```yaml
 spec:
   versions:
-    - version: "0.20.8"
+    - version: "v0.23.1"
       helmValues:
         opentelemetry-operator:
           admissionWebhooks:

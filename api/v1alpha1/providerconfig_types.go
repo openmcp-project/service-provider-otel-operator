@@ -49,8 +49,8 @@ type ProviderConfigSpec struct {
 
 // KubeStackVersion defines an opentelemetry-kube-stack version that can be installed.
 type KubeStackVersion struct {
-	// Version is the opentelemetry-kube-stack chart version to install. The
-	// opentelemetry-operator version is determined by this chart version.
+	// Version is the v-prefixed opentelemetry-kube-stack chart version to install.
+	// The opentelemetry-operator version is determined by this chart version.
 	// +required
 	Version string `json:"version"`
 

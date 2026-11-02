@@ -28,8 +28,8 @@ import (
 const (
 	testObjName      = "test"
 	testObjNamespace = "default"
-	testVersion      = "0.20.7"
-	testVersionNew   = "0.20.8"
+	testVersion      = "v0.20.7"
+	testVersionNew   = "v0.20.8"
 )
 
 // onboardingScheme includes OtelOperator so the fake onboarding client accepts it.
@@ -169,7 +169,7 @@ func TestPrepareInputs_DeleteFallsBackToInstalledVersionWhenRemovedFromProviderC
 
 	r := &OtelOperatorReconciler{}
 	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
-		Versions: []apiv1alpha1.KubeStackVersion{{Version: testVersionNew}}, // 0.20.7 no longer offered
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: testVersionNew}}, // v0.20.7 no longer offered
 	}}
 
 	_, version, err := r.prepareInputs(obj, pc, true)
@@ -200,7 +200,7 @@ func TestPrepareInputs_ApplyNeverFallsBackToInstalledVersion(t *testing.T) {
 
 	r := &OtelOperatorReconciler{}
 	pc := &apiv1alpha1.ProviderConfig{Spec: apiv1alpha1.ProviderConfigSpec{
-		Versions: []apiv1alpha1.KubeStackVersion{{Version: testVersionNew}}, // 0.20.7 no longer offered
+		Versions: []apiv1alpha1.KubeStackVersion{{Version: testVersionNew}}, // v0.20.7 no longer offered
 	}}
 
 	_, _, err := r.prepareInputs(obj, pc, false)

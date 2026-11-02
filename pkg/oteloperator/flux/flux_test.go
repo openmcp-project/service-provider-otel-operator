@@ -36,7 +36,7 @@ func TestManageFluxResources_CreatesOneOCIRepositoryAndTwoHelmReleases(t *testin
 	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
-		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.20.1"},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "v0.20.1"},
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
@@ -44,7 +44,7 @@ func TestManageFluxResources_CreatesOneOCIRepositoryAndTwoHelmReleases(t *testin
 		CPNamespace:        "opentelemetry-operator-system",
 		WorkloadNamespace:  "opentelemetry-operator-system",
 		Obj:                obj,
-		KubeStackVersion:   apiv1alpha1.KubeStackVersion{Version: "0.20.1"},
+		KubeStackVersion:   apiv1alpha1.KubeStackVersion{Version: "v0.20.1"},
 		PollInterval:       time.Minute,
 		WorkloadHelmValues: mustWorkloadHelmValues(t),
 		CRDHelmValues:      mustCRDHelmValues(t),
@@ -90,7 +90,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName, Namespace: "default"},
-		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "1.2.3"},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "v0.23.1"},
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
@@ -99,7 +99,7 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 		WorkloadNamespace:   testOtelNS,
 		ChartPullSecretName: "my-secret",
 		Obj:                 obj,
-		KubeStackVersion:    apiv1alpha1.KubeStackVersion{Version: "1.2.3", ChartURL: &chartURL},
+		KubeStackVersion:    apiv1alpha1.KubeStackVersion{Version: "v0.23.1", ChartURL: &chartURL},
 		PollInterval:        2 * time.Minute,
 		WorkloadHelmValues:  mustWorkloadHelmValues(t),
 		CRDHelmValues:       mustCRDHelmValues(t),
@@ -117,8 +117,8 @@ func TestManageFluxResources_ReconcilePopulatesSpec(t *testing.T) {
 	if ociRepo.Spec.URL != chartURL {
 		t.Errorf("kube-stack OCIRepository URL: expected %s, got %s", chartURL, ociRepo.Spec.URL)
 	}
-	if ociRepo.Spec.Reference == nil || ociRepo.Spec.Reference.Tag != "1.2.3" {
-		t.Errorf("kube-stack OCIRepository tag: expected 1.2.3, got %v", ociRepo.Spec.Reference)
+	if ociRepo.Spec.Reference == nil || ociRepo.Spec.Reference.Tag != "0.23.1" {
+		t.Errorf("kube-stack OCIRepository tag: expected 0.23.1, got %v", ociRepo.Spec.Reference)
 	}
 	if ociRepo.Spec.SecretRef == nil || ociRepo.Spec.SecretRef.Name != "my-secret" {
 		t.Errorf("kube-stack OCIRepository secret ref: expected my-secret, got %v", ociRepo.Spec.SecretRef)
@@ -216,7 +216,7 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
-		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.1.0"},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "v0.1.0"},
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
@@ -224,7 +224,7 @@ func TestManageFluxResources_NoChartPullSecret(t *testing.T) {
 		CPNamespace:        "ns",
 		WorkloadNamespace:  "ns",
 		Obj:                obj,
-		KubeStackVersion:   apiv1alpha1.KubeStackVersion{Version: "0.1.0", ChartURL: &chartURL},
+		KubeStackVersion:   apiv1alpha1.KubeStackVersion{Version: "v0.1.0", ChartURL: &chartURL},
 		PollInterval:       time.Minute,
 		WorkloadHelmValues: mustWorkloadHelmValues(t),
 		CRDHelmValues:      mustCRDHelmValues(t),
@@ -258,7 +258,7 @@ func TestManageFluxResources_WorkloadHelmReleaseHasCPAccessPostRenderer(t *testi
 	cluster := &fakeManagedCluster{ns: testTenantNS}
 	obj := &apiv1alpha1.OtelOperator{
 		ObjectMeta: metav1.ObjectMeta{Name: testMCPName},
-		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "0.20.0"},
+		Spec:       apiv1alpha1.OtelOperatorSpec{Version: "v0.20.0"},
 	}
 
 	ManageFluxResources(ManageFluxResourcesParams{
@@ -266,7 +266,7 @@ func TestManageFluxResources_WorkloadHelmReleaseHasCPAccessPostRenderer(t *testi
 		CPNamespace:        "ns",
 		WorkloadNamespace:  "ns",
 		Obj:                obj,
-		KubeStackVersion:   apiv1alpha1.KubeStackVersion{Version: "0.20.0"},
+		KubeStackVersion:   apiv1alpha1.KubeStackVersion{Version: "v0.20.0"},
 		PollInterval:       time.Minute,
 		WorkloadHelmValues: mustWorkloadHelmValues(t),
 		CRDHelmValues:      mustCRDHelmValues(t),
