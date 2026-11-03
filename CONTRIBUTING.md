@@ -37,3 +37,29 @@ The following rule governs code contributions:
 * We use GitHub issues to track bugs and enhancement requests.
 
 * Please provide as much context as possible when you open an issue. The information you provide must be comprehensive enough to reproduce that issue for the assignee.
+
+## Releases
+
+Every push to `main` creates or refreshes one [draft release](https://github.com/openmcp-project/service-provider-otel-operator/releases) targeting a prepared exact-version source commit on the dedicated automation-owned `automation/release-candidate` branch. Its version and notes come from commits since the last published stable root release whose recorded source-main SHA is reachable from `main` (or whose root tag is reachable for legacy releases), not from the previous draft:
+
+| Commit | Version increment |
+|---|---|
+| `feat:` / `feat(scope):` | Minor |
+| `fix:`, `perf:`, and other changes | Patch |
+| `type!:` / `type(scope)!:` or a `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer | Major |
+
+The largest increment wins. Keep squash-merge commit titles semantic. Before updating the draft, automation commits the release `VERSION` on the candidate source branch. Draft updates create no tags and leave source `main`, including its `VERSION`, untouched.
+
+To release, open [GitHub Releases](https://github.com/openmcp-project/service-provider-otel-operator/releases), open the draft, review its version, notes, and prepared source, then click **Publish**. GitHub creates the root tag at the prepared source commit. The `release.published` event validates that source, creates any actual nested-module tags, and merges the exact tagged commit into latest `main`. A separate commit then changes only `VERSION` to `<released-version>-dev`. The tag stays on its original SHA, which becomes an ancestor of main; the candidate branch remains available for future drafts. Only after post-processing succeeds does the dependent `publish` job build images/OCM artifacts from the published tag source. Check both jobs before deploying. The separate Publish workflow remains manual-only for artifact reruns.
+
+Published root tags never move. Merge conflicts and concurrent main pushes stop post-processing without changing remote main. Resolve conflicts by merging the published tag into main normally (not squash/rebase), then rerun the failed published-event workflow; an already merged release only needs its development-version commit. Completed runs are idempotent. The bot must be allowed to push to the automation-owned release-candidate branch and `main`, create merge commits on main, and create nested-module tags when applicable.
+
+This repository has no chart of its own and no nested Go modules. Shared automation also prepares chart `version`, `appVersion`, image tags, and nested-module references in candidate source before **Publish**; those changes reach main through the release merge. Major Go module-path migrations remain source changes to prepare before publishing a major release.
+
+`task release:patch`, `task release:minor`, `task release:major`, and `task release:prepare-dev-cycle` remain available as non-mutating guidance commands, including the current repository's releases link. `release:set-version` is still used by automation to prepare candidate source and synchronize main; it does not publish a release.
+
+Read-only local preview (requires Node.js 22+, authenticated `gh`, and a full, current `main` checkout; no npm install needed):
+
+```sh
+node hack/common/release.cjs plan --repo openmcp-project/service-provider-otel-operator
+```

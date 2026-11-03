@@ -1,9 +1,6 @@
 name: Publish
 
 on:
-  push:
-    tags:
-      - v*
   workflow_dispatch:
 
 permissions:
@@ -11,5 +8,6 @@ permissions:
 
 jobs:
   release_publish:
-    uses: openmcp-project/build/.github/workflows/publish.lib.yaml@e26a74a15fc9a8cb1a832c8c44bc6bf8286ac662 # main
-    secrets: inherit
+    uses: openmcp-project/build/.github/workflows/publish.lib.yaml@88d029ddfe88e117ace5cd698781954d9a6536c6 # main
+    secrets:
+      app_private_key: ${{ secrets.OPENMCP_CI_APP_PRIVATE_KEY }}
