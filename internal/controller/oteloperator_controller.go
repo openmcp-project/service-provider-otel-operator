@@ -36,6 +36,7 @@ import (
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	ctrlerrors "github.com/openmcp-project/controller-utils/pkg/errors"
+	"github.com/openmcp-project/extensibility-utils/pkg/tokenrefresh"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 	libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
@@ -150,10 +151,7 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 		return nil, apiv1alpha1.KubeStackVersion{}, fmt.Errorf("failed to extract helm values: %w", err)
 	}
 
-	otelOperatorNamespace := namespaceOtelOperator
-	if helmValues.NamespaceOverride != "" {
-		otelOperatorNamespace = helmValues.NamespaceOverride
-	}
+	otelOperatorNamespace := operatorNamespace(helmValues)
 	workloadNamespace := instance.Namespace(obj)
 
 	platformCluster := resources.NewManagedCluster(r.PlatformCluster, r.PlatformCluster.RESTConfig(), tenantNamespace, resources.ClusterTypePlatform)
@@ -166,13 +164,8 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	mgr.AddCluster(platformCluster)
 
 	// ServiceAccount on CP + token Secret on workload so otel-operator connects to CP API.
-	cpServiceAccount := &authn.ManagedServiceAccount{
-		NamespacedName: k8stypes.NamespacedName{
-			Name:      "otel-operator-server",
-			Namespace: otelOperatorNamespace,
-		},
-	}
-	cpServiceAccount.Configure(workloadCluster, cpCluster, pc.PollInterval())
+	cpServiceAccount := CPServiceAccount(otelOperatorNamespace)
+	cpServiceAccount.Configure(workloadCluster, cpCluster)
 	authz.Configure(cpCluster, cpServiceAccount)
 
 	workloadHelmValues, crdHelmValues, err := prepareHelmValues(kubeStackVersion.HelmValues, cpCluster, cpServiceAccount.KubeAPIAccess())
@@ -216,6 +209,49 @@ func (r *OtelOperatorReconciler) createObjectManager(obj *apiv1alpha1.OtelOperat
 	})
 
 	return mgr, kubeStackVersion, nil
+}
+
+// operatorNamespace returns the namespace of the otel-operator on the CP cluster.
+func operatorNamespace(helmValues *helm.Values) string {
+	if helmValues.NamespaceOverride != "" {
+		return helmValues.NamespaceOverride
+	}
+	return namespaceOtelOperator
+}
+
+// CPServiceAccount returns the otel-operator ServiceAccount in the given namespace on the CP cluster.
+func CPServiceAccount(otelOperatorNamespace string) *authn.ManagedServiceAccount {
+	return &authn.ManagedServiceAccount{
+		NamespacedName: k8stypes.NamespacedName{
+			Name:      "otel-operator-server",
+			Namespace: otelOperatorNamespace,
+		},
+	}
+}
+
+// TokenBinding returns the token binding of an OtelOperator for the token refresh controller.
+// The ServiceAccount namespace depends on the Helm values of the selected version, so the ProviderConfig
+// named providerName is read from the platform cluster.
+func (r *OtelOperatorReconciler) TokenBinding(providerName string) tokenrefresh.BindingFunc[*apiv1alpha1.OtelOperator] {
+	return func(ctx context.Context, obj *apiv1alpha1.OtelOperator) (tokenrefresh.Binding, bool, error) {
+		// the instance namespace is known once the OtelOperator controller has assigned the instance ID
+		if instance.GetID(obj) == "" {
+			return tokenrefresh.Binding{}, false, nil
+		}
+		pc := &apiv1alpha1.ProviderConfig{}
+		if err := r.PlatformCluster.Client().Get(ctx, k8stypes.NamespacedName{Name: providerName}, pc); err != nil {
+			return tokenrefresh.Binding{}, false, fmt.Errorf("failed to get provider config %s: %w", providerName, err)
+		}
+		kubeStackVersion, err := selectKubeStackVersion(obj.Spec.Version, pc)
+		if err != nil {
+			return tokenrefresh.Binding{}, false, fmt.Errorf("failed to select opentelemetry-kube-stack version: %w", err)
+		}
+		helmValues, err := helm.ExtractHelmValues(kubeStackVersion.HelmValues)
+		if err != nil {
+			return tokenrefresh.Binding{}, false, fmt.Errorf("failed to extract helm values: %w", err)
+		}
+		return CPServiceAccount(operatorNamespace(helmValues)).TokenBinding(instance.Namespace(obj)), true, nil
+	}
 }
 
 func (r *OtelOperatorReconciler) prepareInputs(obj *apiv1alpha1.OtelOperator, pc *apiv1alpha1.ProviderConfig, forDelete bool) (string, apiv1alpha1.KubeStackVersion, error) {

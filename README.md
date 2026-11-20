@@ -170,7 +170,7 @@ spec:
 
 | Field                                      | Type     | Description |
 | ------------------------------------------ | -------- | ----------- |
-| `spec.pollInterval`                        | duration | Reconciliation interval. Defaults to `1m`. |
+| `spec.pollInterval`                        | duration | Reconciliation and Flux sync interval. Defaults to `1m`. |
 | `spec.caBundleRef`                         | ConfigMapKeySelector | Optional. Reference to a ConfigMap in the provider pod namespace containing a CA bundle. Copied to the workload cluster and mounted into the OpenTelemetry Operator so it trusts private/corporate CAs. |
 | `spec.caBundleRef.name`                    | string   | Name of the source ConfigMap in the provider pod namespace. |
 | `spec.caBundleRef.key`                     | string   | Key within the ConfigMap whose value is the PEM-encoded CA bundle. |
@@ -211,7 +211,7 @@ spec:
               enabled: false
 ```
 
-For CP API access, the provider propagates CA data from the CP REST config into the generated kubeconfig used by the workload-cluster operator.
+For CP API access, the provider writes the CA data from the CP REST config into the token Secret used by the workload-cluster operator.
 
 For air-gapped or corporate PKI environments with private certificate authorities, set `spec.caBundleRef` in the `ProviderConfig`. The referenced ConfigMap is copied from the provider pod namespace to each workload cluster instance namespace and mounted into the OpenTelemetry Operator container with `SSL_CERT_DIR` set accordingly:
 
@@ -221,6 +221,16 @@ spec:
     name: custom-ca-bundle   # ConfigMap must exist in the provider pod namespace
     key: ca-bundle.crt
 ```
+
+### ControlPlane Access
+
+The OpenTelemetry Operator and the collectors it creates authenticate against the CP with a token of the ServiceAccount `opentelemetry-operator-system/otel-operator-server` on the CP (the namespace follows `namespaceOverride` in the Helm values of the selected version, if set). The Secret `kube-api-access-otel-operator-server` in the instance namespace on the workload cluster holds the keys `token`, `ca.crt`, `namespace` and `kubeconfig`. The operator mounts it at `/var/run/secrets/kubernetes.io/serviceaccount`, the collectors at `/var/run/secrets/open-control-plane.io/cp-kubeconfig`, and `KUBECONFIG` points to the `kubeconfig` file.
+
+- The OtelOperator controller creates the Secret with an initial token.
+- The `kubeconfig` holds no credentials: it references `token` and `ca.crt` by relative path, which the Kubernetes client resolves against the directory of the kubeconfig file. It does not change when the token is renewed.
+- A dedicated `otel-operator-token-refresh` controller ([`extensibility-utils/pkg/tokenrefresh`](https://github.com/openmcp-project/extensibility-utils)) renews the token at 80% of its validity (1h tokens), independent of `spec.pollInterval`.
+- Token creation and expiration time are tracked in the annotations `oteloperator.services.open-control-plane.io/token-creation-time` and `oteloperator.services.open-control-plane.io/token-expiration-time`.
+- The pods are not restarted on renewal: the kubelet updates the mounted Secret and the Kubernetes client re-reads the token file.
 
 ## 🔐 Operational and Security Notes
 
@@ -357,7 +367,7 @@ The current API version is `oteloperator.services.open-control-plane.io/v1alpha1
 | Status reporting & error messages |   ✅   | Status subresource, phase, conditions, managed resource status, and Flux condition messages are exposed; `ErrInvalidUserInput` errors are suppressed from the requeue loop. |
 | Operation annotations             |   ✅   | Handled by the `APIReconciler` framework (`openmcp.cloud/operation: ignore` and `reconcile` annotations, plus event filter predicate). |
 | API stability policy              |   ✅   | Alpha API stability policy is documented above. |
-| Custom CA support                 |   ✅   | `spec.caBundleRef` copies a CA ConfigMap to the workload cluster and injects `SSL_CERT_DIR` + volume mount into the OpenTelemetry Operator; CP API CA is propagated in the generated workload kubeconfig. |
+| Custom CA support                 |   ✅   | `spec.caBundleRef` copies a CA ConfigMap to the workload cluster and injects `SSL_CERT_DIR` + volume mount into the OpenTelemetry Operator; CP API CA is propagated in the CP token Secret on the workload cluster. |
 | Release artifacts (image + OCM)   |   ✅   | Image and OCM component build/publish tasks are configured through the shared Taskfile and publish workflow. |
 | Testing                           |   ✅   | Unit tests, e2e tests, validation tasks, and CI/e2e workflows are present. |
 | Ownership and maintenance docs    |   ✅   | Support, security, contributing, license, and code-of-conduct docs are linked; `.github/CODEOWNERS` names responsible maintainers. |

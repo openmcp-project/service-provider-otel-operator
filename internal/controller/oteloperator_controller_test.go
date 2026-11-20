@@ -11,11 +11,14 @@ import (
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/serviceprovider/clusteraccess"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/meta/testrestmapper"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -23,6 +26,8 @@ import (
 
 	apiv1alpha1 "github.com/openmcp-project/service-provider-otel-operator/api/v1alpha1"
 	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/cpresources"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/instance"
+	"github.com/openmcp-project/service-provider-otel-operator/pkg/oteloperator/testutils"
 )
 
 const (
@@ -282,4 +287,86 @@ func stubCluster(t *testing.T, id string) *clusters.Cluster {
 	_ = clientgoscheme.AddToScheme(s)
 	cl := fake.NewClientBuilder().WithScheme(s).Build()
 	return clusters.NewTestClusterFromClient(id, cl)
+}
+
+func TestTokenBinding(t *testing.T) {
+	const providerName = "otel-operator"
+	providerConfig := func() *apiv1alpha1.ProviderConfig {
+		return &apiv1alpha1.ProviderConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: providerName},
+			Spec: apiv1alpha1.ProviderConfigSpec{
+				Versions: []apiv1alpha1.KubeStackVersion{
+					{Version: testVersion},
+					{Version: testVersionNew, HelmValues: &apiextensionsv1.JSON{Raw: []byte(`{"namespaceOverride": "custom-ns"}`)}},
+				},
+			},
+		}
+	}
+	otelWithInstanceID := func(version string) *apiv1alpha1.OtelOperator {
+		obj := &apiv1alpha1.OtelOperator{ObjectMeta: metav1.ObjectMeta{Name: testObjName, Namespace: testObjNamespace}}
+		obj.Spec.Version = version
+		instance.SetID(obj, instance.GenerateID(obj))
+		return obj
+	}
+	tests := []struct {
+		name          string
+		obj           *apiv1alpha1.OtelOperator
+		pc            *apiv1alpha1.ProviderConfig
+		wantOK        bool
+		wantErr       bool
+		wantNamespace string
+	}{
+		{
+			name: "no instance ID is not ready",
+			obj:  &apiv1alpha1.OtelOperator{ObjectMeta: metav1.ObjectMeta{Name: testObjName, Namespace: testObjNamespace}},
+			pc:   providerConfig(),
+		},
+		{
+			name:          "default namespace",
+			obj:           otelWithInstanceID(testVersion),
+			pc:            providerConfig(),
+			wantOK:        true,
+			wantNamespace: namespaceOtelOperator,
+		},
+		{
+			name:          "namespace override from the selected version",
+			obj:           otelWithInstanceID(testVersionNew),
+			pc:            providerConfig(),
+			wantOK:        true,
+			wantNamespace: "custom-ns",
+		},
+		{
+			name:    "missing provider config returns an error",
+			obj:     otelWithInstanceID(testVersion),
+			wantErr: true,
+		},
+		{
+			name:    "unknown version returns an error",
+			obj:     otelWithInstanceID("v9.9.9"),
+			pc:      providerConfig(),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var objs []client.Object
+			if tt.pc != nil {
+				objs = append(objs, tt.pc)
+			}
+			r := &OtelOperatorReconciler{PlatformCluster: testutils.CreateTestClusterWithClient(t, "platform", objs...)}
+
+			binding, ok, err := r.TokenBinding(providerName)(context.Background(), tt.obj)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOK, ok)
+			if !tt.wantOK {
+				return
+			}
+			assert.Equal(t, k8stypes.NamespacedName{Name: "otel-operator-server", Namespace: tt.wantNamespace}, binding.ServiceAccount)
+			assert.Equal(t, k8stypes.NamespacedName{Name: "kube-api-access-otel-operator-server", Namespace: instance.Namespace(tt.obj)}, binding.Secret)
+		})
+	}
 }
